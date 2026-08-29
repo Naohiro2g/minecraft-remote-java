@@ -14,11 +14,12 @@ Classic implementationとして保存されています。このrepositoryはCla
 - repository: `Naohiro2g/minecraft-remote-java`
 - Gradle project: `minecraft-remote-java`
 - Java root package: `club.code2create.mcremote.client`
-- Gradle logical group: `club.code2create.mcremote`
+- Maven / Gradle group: `club.code2create.mcremote`
+- Maven artifactId: `minecraft-remote-client`
 - Java target: 21
 - behavioral comparison baseline: Minecraft Remote Protocol 23.0.0／artifact 2300.0.0b6
 
-Gradle project名はlocal build identityです。Maven artifactIdや公開versionを意味しません。
+Gradle project名はrepository／local build identityであり、Maven artifactIdとは別です。公開versionは未設定です。
 このbootstrapには`maven-publish`、公開repository、signing、release credentialを設定していません。
 
 ## Build
@@ -44,7 +45,7 @@ Minecraft Remote固有のProtocol、互換性、bootstrap判断の正本は
 
 - `10-protocol/polyglot-client-roadmap_ja.md`
 - `16-java-client/README_ja.md`
-- decisions `2026-08-29-04`〜`2026-08-29-07`
+- decisions `2026-08-29-04`〜`2026-08-29-08`
 
 実装判断は次の順で行います。
 

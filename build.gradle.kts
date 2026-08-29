@@ -8,6 +8,10 @@ plugins {
 group = "club.code2create.mcremote"
 description = "Minecraft Remote for Java"
 
+base {
+    archivesName.set("minecraft-remote-client")
+}
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
