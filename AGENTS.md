@@ -39,7 +39,7 @@ memory、過去会話、ローカル推論から欠けたMcRemote文脈を補完
 ## このrepository固有の指示
 
 - build／testにはrepositoryのGradle wrapperを使う。
-- Java targetは21、root packageは`com.mcremote`とする。
+- Java targetは21、root packageは`club.code2create.mcremote.client`とする。
 - Gradle project名をMaven artifactIdまたは公開versionとみなさない。
 - publish plugin、registry coordinate、release workflowはknowledge SSOTで確定するまで追加しない。
 - wire formatに触れる前に`10-protocol`、Java bootstrap作業では`16-java-client`を読む。

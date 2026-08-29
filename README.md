@@ -13,8 +13,8 @@ Classic implementationとして保存されています。このrepositoryはCla
 
 - repository: `Naohiro2g/minecraft-remote-java`
 - Gradle project: `minecraft-remote-java`
-- Java root package: `com.mcremote`
-- Gradle logical group: `com.mcremote`
+- Java root package: `club.code2create.mcremote.client`
+- Gradle logical group: `club.code2create.mcremote`
 - Java target: 21
 - behavioral comparison baseline: Minecraft Remote Protocol 23.0.0／artifact 2300.0.0b6
 
@@ -44,7 +44,7 @@ Minecraft Remote固有のProtocol、互換性、bootstrap判断の正本は
 
 - `10-protocol/polyglot-client-roadmap_ja.md`
 - `16-java-client/README_ja.md`
-- decisions `2026-08-29-04`〜`2026-08-29-06`
+- decisions `2026-08-29-04`〜`2026-08-29-07`
 
 実装判断は次の順で行います。
 

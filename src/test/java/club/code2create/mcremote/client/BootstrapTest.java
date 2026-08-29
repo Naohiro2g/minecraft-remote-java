@@ -1,4 +1,4 @@
-package com.mcremote;
+package club.code2create.mcremote.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -8,6 +8,6 @@ class BootstrapTest {
 
     @Test
     void usesTheApprovedRootPackage() {
-        assertEquals("com.mcremote", BootstrapTest.class.getPackageName());
+        assertEquals("club.code2create.mcremote.client", BootstrapTest.class.getPackageName());
     }
 }

@@ -5,7 +5,7 @@ plugins {
     `java-library`
 }
 
-group = "com.mcremote"
+group = "club.code2create.mcremote"
 description = "Minecraft Remote for Java"
 
 java {

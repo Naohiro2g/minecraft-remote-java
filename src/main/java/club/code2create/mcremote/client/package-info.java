@@ -1,4 +1,4 @@
 /**
  * Public root package for Minecraft Remote for Java.
  */
-package com.mcremote;
+package club.code2create.mcremote.client;
