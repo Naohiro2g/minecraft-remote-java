@@ -1,0 +1,25 @@
+# Gradle
+.gradle/
+build/
+
+# IDEs
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Operator-local agent context and notes
+CLAUDE.md
+NOTES_ja.md
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
