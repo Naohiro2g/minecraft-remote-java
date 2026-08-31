@@ -1,6 +1,7 @@
 package club.code2create.mcremote.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -226,6 +227,169 @@ class MinecraftRemoteTest {
     }
 
     @Test
+    void replacesOnlyTheExpiredTargetCredentialAndPairsOnce() throws Exception {
+        CredentialStore store = CredentialStore.inMemory();
+        ServerTarget otherTarget = new ServerTarget("other.example", 25575);
+        store.save(otherTarget, "mcrs_other");
+
+        try (ScriptedPeer peer = new ScriptedPeer(
+                server -> {
+                    try (ScriptedPeer.PeerConnection first = server.accept()) {
+                        ObjectNode hello = first.readRequest();
+                        assertEquals(
+                                "mcrs_expired",
+                                hello.path("params").path("auth").path("token").asText());
+                        first.error(hello, -32000, "token expired", "token_expired");
+                    }
+                    try (ScriptedPeer.PeerConnection pairing = server.accept()) {
+                        ObjectNode begin = pairing.readRequest();
+                        assertRequest(begin, 1, "auth.pairBegin");
+                        pairing.result(
+                                begin,
+                                Map.of(
+                                        "pairing_id", "private-pairing-id",
+                                        "pair_code", "123456",
+                                        "expires_in", 120));
+                        ObjectNode poll = pairing.readRequest();
+                        assertRequest(poll, 2, "auth.pairPoll");
+                        pairing.result(poll, Map.of("status", "ok", "token", "mcrs_replaced"));
+                    }
+                    try (ScriptedPeer.PeerConnection authenticated = server.accept()) {
+                        ObjectNode hello = authenticated.readRequest();
+                        assertEquals(
+                                "mcrs_replaced",
+                                hello.path("params").path("auth").path("token").asText());
+                        authenticated.result(hello, helloResult("23.0.0"));
+                    }
+                })) {
+            ServerTarget target = new ServerTarget("127.0.0.1", peer.port());
+            store.save(target, "mcrs_expired");
+
+            try (MinecraftRemote ignored = MinecraftRemote.builder(target.host(), target.port())
+                    .credentialStore(store)
+                    .pairPollInterval(Duration.ofMillis(1))
+                    .pairingListener(challenge -> {})
+                    .connect()) {
+                assertEquals("mcrs_replaced", store.load(target).orElseThrow());
+                assertEquals("mcrs_other", store.load(otherTarget).orElseThrow());
+            }
+            peer.await();
+        }
+    }
+
+    @Test
+    void doesNotPairAgainWhenTheFreshlyPairedTokenIsRejected() throws Exception {
+        CredentialStore store = CredentialStore.inMemory();
+        try (ScriptedPeer peer = new ScriptedPeer(
+                server -> {
+                    try (ScriptedPeer.PeerConnection first = server.accept()) {
+                        ObjectNode hello = first.readRequest();
+                        first.error(hello, -32000, "authentication required", "auth_required");
+                    }
+                    try (ScriptedPeer.PeerConnection pairing = server.accept()) {
+                        ObjectNode begin = pairing.readRequest();
+                        pairing.result(
+                                begin,
+                                Map.of(
+                                        "pairing_id", "private-pairing-id",
+                                        "pair_code", "123456",
+                                        "expires_in", 120));
+                        ObjectNode poll = pairing.readRequest();
+                        pairing.result(poll, Map.of("status", "ok", "token", "mcrs_rejected"));
+                    }
+                    try (ScriptedPeer.PeerConnection rejected = server.accept()) {
+                        ObjectNode hello = rejected.readRequest();
+                        rejected.error(hello, -32000, "token invalid", "token_invalid");
+                    }
+                })) {
+            ServerTarget target = new ServerTarget("127.0.0.1", peer.port());
+            RemoteCallException exception = assertThrows(
+                    RemoteCallException.class,
+                    () -> MinecraftRemote.builder(target.host(), target.port())
+                            .credentialStore(store)
+                            .pairPollInterval(Duration.ofMillis(1))
+                            .pairingListener(challenge -> {})
+                            .connect());
+
+            assertEquals("token_invalid", exception.reason().orElseThrow());
+            assertTrue(store.load(target).isEmpty());
+            peer.await();
+        }
+    }
+
+    @Test
+    void keepsCredentialForPermissionAndProtocolFailures() throws Exception {
+        assertCredentialIsKeptAfterHelloError("permission_denied");
+
+        CredentialStore store = CredentialStore.inMemory();
+        try (ScriptedPeer peer = new ScriptedPeer(
+                server -> {
+                    try (ScriptedPeer.PeerConnection connection = server.accept()) {
+                        ObjectNode hello = connection.readRequest();
+                        connection.result(hello, helloResult("24.0.0"));
+                    }
+                })) {
+            ServerTarget target = new ServerTarget("127.0.0.1", peer.port());
+            store.save(target, "mcrs_keep_protocol");
+            assertThrows(
+                    ProtocolException.class,
+                    () -> MinecraftRemote.builder(target.host(), target.port())
+                            .credentialStore(store)
+                            .connect());
+            assertEquals("mcrs_keep_protocol", store.load(target).orElseThrow());
+            peer.await();
+        }
+    }
+
+    @Test
+    void keepsCredentialForNetworkFailure() throws Exception {
+        CredentialStore store = CredentialStore.inMemory();
+        try (ScriptedPeer peer = new ScriptedPeer(
+                server -> {
+                    try (ScriptedPeer.PeerConnection ignored = server.accept()) {
+                        // Closing without a response simulates a reachable target dropping the connection.
+                    }
+                })) {
+            ServerTarget target = new ServerTarget("127.0.0.1", peer.port());
+            store.save(target, "mcrs_keep_network");
+            assertThrows(
+                    TransportException.class,
+                    () -> MinecraftRemote.builder(target.host(), target.port())
+                            .credentialStore(store)
+                            .connect());
+            assertEquals("mcrs_keep_network", store.load(target).orElseThrow());
+            peer.await();
+        }
+    }
+
+    @Test
+    void reportsCredentialBackendFailureWithoutConnectingOrPairing() {
+        CredentialStore unavailable = new CredentialStore() {
+            @Override
+            public java.util.Optional<String> load(ServerTarget target)
+                    throws MinecraftRemoteException {
+                throw new MinecraftRemoteException("credential backend unavailable");
+            }
+
+            @Override
+            public void save(ServerTarget target, String token) {}
+
+            @Override
+            public void clear(ServerTarget target) {}
+        };
+
+        MinecraftRemoteException exception = assertThrows(
+                MinecraftRemoteException.class,
+                () -> MinecraftRemote.builder("127.0.0.1", 1)
+                        .credentialStore(unavailable)
+                        .pairingListener(challenge -> {})
+                        .connect());
+
+        assertEquals("credential backend unavailable", exception.getMessage());
+        assertFalse(exception instanceof PairingRequiredException);
+    }
+
+    @Test
     void reportsPairingRequiredWithoutStartingAnImplicitUi() throws Exception {
         try (ScriptedPeer peer = new ScriptedPeer(
                 server -> {
@@ -285,6 +449,28 @@ class MinecraftRemoteTest {
         assertEquals("2.0", request.path("jsonrpc").asText());
         assertEquals(id, request.path("id").asInt());
         assertEquals(method, request.path("method").asText());
+    }
+
+    private static void assertCredentialIsKeptAfterHelloError(String reason) throws Exception {
+        CredentialStore store = CredentialStore.inMemory();
+        try (ScriptedPeer peer = new ScriptedPeer(
+                server -> {
+                    try (ScriptedPeer.PeerConnection connection = server.accept()) {
+                        ObjectNode hello = connection.readRequest();
+                        connection.error(hello, -32000, "request rejected", reason);
+                    }
+                })) {
+            ServerTarget target = new ServerTarget("127.0.0.1", peer.port());
+            store.save(target, "mcrs_keep_remote_error");
+            RemoteCallException exception = assertThrows(
+                    RemoteCallException.class,
+                    () -> MinecraftRemote.builder(target.host(), target.port())
+                            .credentialStore(store)
+                            .connect());
+            assertEquals(reason, exception.reason().orElseThrow());
+            assertEquals("mcrs_keep_remote_error", store.load(target).orElseThrow());
+            peer.await();
+        }
     }
 
     private static Map<String, Object> helloResult(String protocol) {

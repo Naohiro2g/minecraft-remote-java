@@ -3,6 +3,7 @@ package club.code2create.mcremote.examples;
 import club.code2create.mcremote.client.CredentialStore;
 import club.code2create.mcremote.client.MinecraftRemote;
 import club.code2create.mcremote.client.MinecraftRemoteException;
+import club.code2create.mcremote.client.ServerTarget;
 import java.util.Locale;
 import java.util.Scanner;
 
@@ -15,47 +16,64 @@ public final class Main {
     private Main() {}
 
     public static void main(String[] args) throws MinecraftRemoteException {
-        String selection = args.length == 0 ? "my-world" : args[0];
-        if ("list".equals(selection)) {
+        ExampleArguments options = ExampleArguments.parse(args);
+        if ("list".equals(options.selection())) {
             printExamples();
             return;
         }
-        if ("menu".equals(selection)) {
-            runMenu();
+        if ("help".equals(options.selection())) {
+            printUsage();
             return;
         }
-        run(selection);
-    }
-
-    static void run(String selection) throws MinecraftRemoteException {
-        try (MinecraftRemote minecraft = connect()) {
-            printConnection(minecraft);
-            runSelected(selection, minecraft);
+        ServerTarget target = targetFromEnvironment();
+        CredentialStoreSelector credentials = new CredentialStoreSelector(
+                new MicrosoftCredentialStoreProvider(), System.out);
+        if (options.credentialMode() == CredentialMode.FORGET) {
+            credentials.forget(target);
+            return;
         }
-    }
 
-    private static void runMenu() throws MinecraftRemoteException {
-        try (MinecraftRemote minecraft = connect(); Scanner scanner = new Scanner(System.in)) {
+        Scanner scanner = new Scanner(System.in);
+        CredentialStore credentialStore = credentials.select(options.credentialMode(), scanner);
+        try (MinecraftRemote minecraft = connect(target, credentialStore)) {
             printConnection(minecraft);
-            while (true) {
-                printExamples();
-                System.out.print("実行する項目を入力してください（xで終了）: ");
-                String selection = scanner.nextLine().trim();
-                if ("x".equalsIgnoreCase(selection)) {
-                    return;
-                }
-                runSelected(selection, minecraft);
+            if ("menu".equals(options.selection())) {
+                runMenu(minecraft, scanner);
+            } else {
+                runSelected(options.selection(), minecraft);
             }
         }
     }
 
-    private static MinecraftRemote connect() throws MinecraftRemoteException {
+    static void run(String selection) throws MinecraftRemoteException {
+        main(new String[] {selection});
+    }
+
+    private static void runMenu(MinecraftRemote minecraft, Scanner scanner)
+            throws MinecraftRemoteException {
+        while (true) {
+            printExamples();
+            System.out.print("実行する項目を入力してください（xで終了）: ");
+            String selection = scanner.nextLine().trim();
+            if ("x".equalsIgnoreCase(selection)) {
+                return;
+            }
+            runSelected(selection, minecraft);
+        }
+    }
+
+    private static ServerTarget targetFromEnvironment() {
         String host = System.getenv().getOrDefault("MCREMOTE_HOST", DEFAULT_HOST);
         int port = parsePort(System.getenv("MCREMOTE_PORT"));
+        return new ServerTarget(host, port);
+    }
 
-        System.out.printf("Minecraft Remoteへ接続しています: %s:%d%n", host, port);
-        return MinecraftRemote.builder(host, port)
-                .credentialStore(CredentialStore.inMemory())
+    private static MinecraftRemote connect(ServerTarget target, CredentialStore credentialStore)
+            throws MinecraftRemoteException {
+        System.out.printf(
+                "Minecraft Remoteへ接続しています: %s:%d%n", target.host(), target.port());
+        return MinecraftRemote.builder(target.host(), target.port())
+                .credentialStore(credentialStore)
                 .pairingListener(challenge -> {
                     System.out.println();
                     System.out.println("ペアリングが必要です。Minecraftで次を実行してください:");
@@ -118,5 +136,15 @@ public final class Main {
         System.out.println("  axis-flat        許可範囲内を整地してXYZ軸を描く（worldを変更）");
         System.out.println("  axis-flat-clear  XYZ軸だけ消す（平面は残る）");
         System.out.println();
+    }
+
+    private static void printUsage() {
+        System.out.println("使い方: ./gradlew demo --args='[--save|--no-save] [sample]'");
+        System.out.println("       ./gradlew demo --args='--forget'");
+        System.out.println();
+        System.out.println("--save     保護されたOS資格情報storeを使用する");
+        System.out.println("--no-save  永続storeへ触れず、このprocess内だけでtokenを使う");
+        System.out.println("--forget   選択した接続先のlocal tokenを削除し、接続せず終了する");
+        printExamples();
     }
 }

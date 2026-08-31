@@ -46,14 +46,21 @@ buildはmain source、unit test、通常JAR、sources JARを確認します。
 ./gradlew demo
 ```
 
-接続と必要なpairingの後、Minecraft chatへmessageを送ります。sample一覧、期待結果、world変更範囲、cleanupは
+初回は、session tokenをOS資格情報storeへ保存するか、このprocess内だけで使うかを選びます。接続と必要なpairingの後、
+Minecraft chatへmessageを送ります。sample一覧、期待結果、world変更範囲、cleanupは
 [`examples/README.md`](examples/README.md)を参照してください。
 
 ```bash
 ./gradlew demo --args=list
-./gradlew demo --args=hello
-./gradlew demo --args=axis-flat
+./gradlew demo --args='--save hello'
+./gradlew demo --args='--no-save axis-flat'
+./gradlew demo --args=--forget
 ```
+
+`--save`はmacOS Keychain、Windows Credential Manager、Linux Secret Serviceのうち利用可能な保護storeを使います。
+利用できない場合は平文fileを作らずmemoryへ縮退し、次回もpairingが必要なことを表示します。`--no-save`は永続storeを
+read／write／clearしません。`--forget`は選択した接続先のlocal session tokenだけを削除し、serverへ接続しません。
+server側のrevoke／logoutではありません。
 
 `axis-flat`は、blockが既存地形へ埋もれないようbuild originのX/Z±48を整地してから、±40のXYZ軸を描く、
 永続的かつ破壊的なsampleです。各軸の負領域は破線、正領域は連続線です。
@@ -93,12 +100,14 @@ try (MinecraftRemote minecraft = MinecraftRemote.builder("localhost", 25575)
 
 `CredentialStore.inMemory()`はprocess終了時にtokenを失います。永続化が必要なapplicationは
 `CredentialStore`を実装し、OS credential facility等の保護された保存先を使用してください。libraryは
-token file、private endpoint、operator-local設定を既定では作成しません。
+token file、private endpoint、operator-local設定を既定では作成しません。OS依存のstarter実装はcore artifactではなく
+`examples` subprojectにあります。
 
 決定論的testはloopbackのscripted peerを使い、hello、pairing、block write/read、protocol mismatch、
 JSON-RPC error reasonを検証します。protocol 23.0.0／Minecraft 1.21.11の実serverで、enforcement OFFの
 helloとblock write/read/restore、およびenforcement ONの初回pairing、token付きhello、block
-write/read/restoreを確認済みです。
+write/read/restoreを確認済みです。session credential UXはLinux Secret Serviceで初回pairing後にtokenを保存し、
+process終了後の新しいprocessがpairingなしで再接続してchatを送れることを確認済みです。
 
 ## 設計の正本
 
@@ -109,7 +118,7 @@ Minecraft Remote固有のProtocol、互換性、bootstrap判断の正本は
 
 - `10-protocol/polyglot-client-roadmap_ja.md`
 - `16-java-client/README_ja.md`
-- decisions `2026-08-29-04`〜`2026-08-29-08`
+- decisions `2026-08-29-04`〜`2026-08-29-08`、`2026-08-30-03`
 
 実装判断は次の順で行います。
 

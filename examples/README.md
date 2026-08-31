@@ -30,6 +30,15 @@ MCREMOTE_ORIGIN_X=500 MCREMOTE_ORIGIN_Y=0 MCREMOTE_ORIGIN_Z=300 ./gradlew demo -
 ./gradlew demo
 ```
 
+最初に、session tokenの扱いを既定値なしで選びます。
+
+```text
+session tokenを保護されたOS資格情報storeへ保存しますか？
+  save    次回の実行で再利用する
+  memory  このprocess内だけで使用する
+選択してください [save/memory]:
+```
+
 認証が必要な場合は、terminalにコピー可能なpairing commandを表示して待機します。
 
 ```text
@@ -39,8 +48,26 @@ MCREMOTE_ORIGIN_X=500 MCREMOTE_ORIGIN_Y=0 MCREMOTE_ORIGIN_Z=300 ./gradlew demo -
 成功すると、Minecraft chatに`Hello from MyWorld.java!`と表示されます。`MyWorld.java`の`message`を
 書き換え、もう一度実行してください。
 
-現在のexample runnerはcredentialをmemoryにだけ保持します。認証が有効なserverでは、processを再起動するたびに
-pairingが必要です。tokenやprivate endpointをsource treeへ保存しないでください。
+`save`を選ぶと、macOS Keychain、Windows Credential Manager、Linux Secret Serviceのうち利用可能な保護storeへ
+接続先単位のsession tokenを保存します。次回も`save`を選べば、期限内tokenを使ってpairingなしで接続できます。
+保護storeを利用できない場合は平文fileへfallbackせず、そのprocess内のmemoryだけを使うため、次回もpairingが必要です。
+
+対話を省略する場合はpolicyを明示します。
+
+```bash
+./gradlew demo --args='--save hello'
+./gradlew demo --args='--no-save hello'
+```
+
+`--no-save`は保存済みtokenを含む永続storeをread／write／clearしません。共有PCや一時的な実行で使用してください。
+選択した接続先のlocal tokenを削除するには、次を単独で実行します。この操作はserverへ接続せず、別端末のtokenを
+revoke／logoutしません。
+
+```bash
+./gradlew demo --args=--forget
+```
+
+token、private endpoint、operator-local設定をsource tree、command argument、通常logへ書かないでください。
 
 ## Sample一覧
 
@@ -87,6 +114,7 @@ Gradleのapplication entry pointは`Main`ですが、各classにも`main()`が�
 - client: このcheckoutからbuildされる未公開Java Client Library
 - confirmed Minecraft target: 1.21.11
 - confirmed Paper baseline: 1.21.11-132
+- confirmed credential backend: Linux Secret Service（初回pairing後、別processで期限内session tokenを再利用）
 - execution mode: 同期request
 - output target: real Minecraft world
 - implementation position: Java client thin projection＋Java user code

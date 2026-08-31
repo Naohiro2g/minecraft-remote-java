@@ -16,6 +16,9 @@ repositories {
 
 dependencies {
     implementation(project(":"))
+    implementation("com.microsoft:credential-secure-storage:1.0.3")
+    implementation("net.java.dev.jna:jna-platform:5.19.1")
+    runtimeOnly("org.slf4j:slf4j-nop:1.7.36")
 
     testImplementation(platform("org.junit:junit-bom:6.1.2"))
     testImplementation("org.junit.jupiter:junit-jupiter")
