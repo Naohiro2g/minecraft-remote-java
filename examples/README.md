@@ -80,6 +80,7 @@ token、private endpoint、operator-local設定をsource tree、command argument
 | MyWorld | `./gradlew demo` | 編集したmessageがMinecraft chatに表示される | playerへの一時表示のみ | 不要 |
 | 00 Hello | `./gradlew demo --args=hello` | 固定messageがMinecraft chatに表示される | playerへの一時表示のみ | 不要 |
 | 01 Set and Read | `./gradlew demo --args=01` | gold blockを置き、同じblock IDをterminalへ表示する | 1 block、永続 | `./gradlew demo --args=01-cleanup` |
+| 02 Protocol 23 Tour | `./gradlew demo --args=02` | catalog／player pose／eventsをterminalへ表示し、看板とparticleをMinecraftで確認する | oak sign 1 block、永続。particleは一時表示 | 不要 |
 | AxisFlat | `./gradlew demo --args=axis-flat` | 整地した空間に色分けしたXYZ軸を表示する | 97×97の床と絶対Y=63..127、永続 | 軸だけなら`./gradlew demo --args=axis-flat-clear`。完全復元はworld backupが必要 |
 
 すべてのblock座標は、example runnerが`build.setOrigin`で選んだbuild originからの相対座標です。AxisFlatは
@@ -89,6 +90,11 @@ Python版と同じ幾何を使い、絶対Y=62に床を作り、X/Z±48、絶対
 
 serverのrequest work上限を越えないよう、97×97の各層は最大64×64のtileへ分け、上から1 block高ずつ
 clearします。
+
+Protocol 23 Tourは、server-authoritative catalogの件数とhash、player pose、event ringの先頭3件をterminalへ
+表示します。その後、build originから相対`(4, 96, 4)`（origin Yが既定の0の場合）へoak signを置き、前面を
+set／1行update／getして、上にflame particleを表示します。`player.setPose`はClient APIに含まれますが、sampleが
+学習者を不意にteleportしないよう、このTourではposeのreadだけを行います。
 
 AxisFlatの色は次のとおりです。
 
@@ -104,7 +110,8 @@ AxisFlatは意図的にworldを大きく変更します。共有worldでは管�
 ## Javaから直接実行
 
 Gradleのapplication entry pointは`Main`ですが、各classにも`main()`があります。IDEのRun操作、またはmain classを
-指定できるJava実行環境から、`MyWorld`、`Demo00Hello`、`Demo01SetAndReadBlock`、`AxisFlat`を直接実行できます。
+指定できるJava実行環境から、`MyWorld`、`Demo00Hello`、`Demo01SetAndReadBlock`、
+`Demo02Protocol23Tour`、`AxisFlat`を直接実行できます。
 
 通常JARへruntime dependencyを埋め込んでいないため、現時点の主導線はGradle wrapperです。
 

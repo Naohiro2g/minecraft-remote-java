@@ -77,6 +77,10 @@ server側のrevoke／logoutではありません。
 - `build.setOrigin`とserver正準build context
 - Minecraft chatへの同期`chat.post`
 - 構造化block値による`world.setBlock`／`world.setBlocks`／`world.getBlock`
+- `catalog.get`のblock state schema／entity ID／particle ID投影
+- `player.getPose`／`player.setPose`とorigin-relativeな`PlayerPose`
+- protocol 23の`pickaxe_poke`を含む型付き`events.poll`
+- `world.spawnParticle`と、両面signのget／set／line update
 - `AutoCloseable`によるconnection close
 
 ```java
@@ -104,10 +108,13 @@ token file、private endpoint、operator-local設定を既定では作成しま�
 `examples` subprojectにあります。
 
 決定論的testはloopbackのscripted peerを使い、hello、pairing、block write/read、protocol mismatch、
-JSON-RPC error reasonを検証します。protocol 23.0.0／Minecraft 1.21.11の実serverで、enforcement OFFの
+JSON-RPC error reasonを検証します。b6-integrated Scratch owner commitからevents／sign／particle fixtureを
+byte-for-byteで取り込み、digest固定とJava wire request／responseの両方へ接続しています。
+protocol 23.0.0／Minecraft 1.21.11の実serverで、enforcement OFFの
 helloとblock write/read/restore、およびenforcement ONの初回pairing、token付きhello、block
 write/read/restoreを確認済みです。session credential UXはLinux Secret Serviceで初回pairing後にtokenを保存し、
-process終了後の新しいprocessがpairingなしで再接続してchatを送れることを確認済みです。
+process終了後の新しいprocessがpairingなしで再接続してchatを送れることを確認済みです。代表capability sliceも
+保存済みtokenからpairingなしで接続し、catalog／player pose／sign set-update-get／particle／events.pollを確認済みです。
 
 ## 設計の正本
 
@@ -129,8 +136,9 @@ Minecraft Remote固有のProtocol、互換性、bootstrap判断の正本は
 ## 現在の到達点
 
 Phase Bのconnect、hello、protocol negotiation、authentication、初回pairing、block write/read、closeは
-固定baseline serverまで通っています。README連動examplesの最初のsliceとして`chat.post`、`world.setBlocks`、
-Hello、Set and Read、AxisFlatを追加しています。以後のClient API拡張はknowledge SSOTに従います。
+固定baseline serverまで通っています。README連動examplesとして`chat.post`、`world.setBlocks`、Hello、Set and
+Read、AxisFlatに加え、catalog／player pose／events／particle／signを一度に観察するProtocol 23 Tourを追加しています。
+以後のClient API拡張はknowledge SSOTに従います。
 
 ## License
 

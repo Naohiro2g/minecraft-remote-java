@@ -117,6 +117,7 @@ public final class Main {
             case "00", "hello" -> Demo00Hello.run(minecraft);
             case "01", "set-and-read", "setblock" -> Demo01SetAndReadBlock.run(minecraft);
             case "01-cleanup", "setblock-cleanup" -> Demo01SetAndReadBlock.cleanup(minecraft);
+            case "02", "protocol23", "capabilities" -> Demo02Protocol23Tour.run(minecraft);
             case "axis-flat", "axis" -> AxisFlat.prepare(minecraft);
             case "axis-flat-clear", "axis-clear" -> AxisFlat.clearAxes(minecraft);
             default -> {
@@ -133,6 +134,7 @@ public final class Main {
         System.out.println("  00 / hello       Minecraft chatへメッセージを送る");
         System.out.println("  01 / setblock    ブロックを置いて読み返す");
         System.out.println("  01-cleanup       01が置いたブロックをairに戻す");
+        System.out.println("  02 / protocol23  catalog／pose／events／particle／signを観察する");
         System.out.println("  axis-flat        許可範囲内を整地してXYZ軸を描く（worldを変更）");
         System.out.println("  axis-flat-clear  XYZ軸だけ消す（平面は残る）");
         System.out.println();
