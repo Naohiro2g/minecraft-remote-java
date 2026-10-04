@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.security.MessageDigest;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -274,6 +275,43 @@ class Protocol23CapabilitiesTest {
                                 Sign.Face.FRONT,
                                 4,
                                 Sign.LineSpec.plain("x")));
+            }
+            peer.await();
+        }
+    }
+
+    @Test
+    void skipsUnknownEventsFromANewerMinorAndPreservesPollProgress() throws Exception {
+        Map<String, Object> result = Map.of(
+                "events",
+                        List.of(Map.of("sequence", 4, "type", "future_event")),
+                "through_sequence", 4,
+                "latest_sequence", 5,
+                "filtered_out", 1,
+                "overflow_dropped_total", 2,
+                "capacity_dropped_total", 3,
+                "explicitly_discarded_total", 4);
+
+        try (ScriptedPeer peer = new ScriptedPeer(server -> {
+            try (ScriptedPeer.PeerConnection connection = server.accept()) {
+                ObjectNode hello = connection.readRequest();
+                Map<String, Object> helloResult = new LinkedHashMap<>(helloResult());
+                helloResult.put("protocol", "23.1.0");
+                connection.result(hello, helloResult);
+                ObjectNode poll = connection.readRequest();
+                connection.result(poll, result);
+            }
+        })) {
+            try (MinecraftRemote client = MinecraftRemote.builder("127.0.0.1", peer.port()).connect()) {
+                EventPollResult poll = client.pollEvents(3);
+
+                assertTrue(poll.events().isEmpty());
+                assertEquals(4, poll.throughSequence());
+                assertEquals(5, poll.latestSequence());
+                assertEquals(1, poll.filteredOut());
+                assertEquals(2, poll.overflowDroppedTotal());
+                assertEquals(3, poll.capacityDroppedTotal());
+                assertEquals(4, poll.explicitlyDiscardedTotal());
             }
             peer.await();
         }

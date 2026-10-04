@@ -85,7 +85,8 @@ public final class MinecraftRemote implements AutoCloseable {
     /** Posts one message to Minecraft chat and waits for the server response. */
     public void postToChat(String message) throws MinecraftRemoteException {
         Objects.requireNonNull(message, "message");
-        request("chat.post", List.of(message));
+        JsonNode result = request("chat.post", List.of(message));
+        requireNullResult(result, "chat.post");
     }
 
     /** Sets one origin-relative block and waits for the server's success or error response. */
@@ -226,7 +227,8 @@ public final class MinecraftRemote implements AutoCloseable {
     /** Polls all currently available events after one sequence cursor. */
     public EventPollResult pollEvents(long afterSequence) throws MinecraftRemoteException {
         requireNonNegative(afterSequence, "afterSequence");
-        return decodeEventPollResult(request("events.poll", List.of(afterSequence)));
+        return decodeEventPollResult(
+                request("events.poll", List.of(afterSequence)), serverHasNewerMinor());
     }
 
     /** Polls at most {@code maxEvents} events after one sequence cursor. */
@@ -237,7 +239,14 @@ public final class MinecraftRemote implements AutoCloseable {
             throw new IllegalArgumentException("maxEvents must be positive");
         }
         return decodeEventPollResult(request(
-                "events.poll", List.of(afterSequence, Map.of("max_events", maxEvents))));
+                        "events.poll", List.of(afterSequence, Map.of("max_events", maxEvents))),
+                serverHasNewerMinor());
+    }
+
+    private boolean serverHasNewerMinor() throws ProtocolException {
+        ProtocolVersion required = ProtocolVersion.parse(PROTOCOL);
+        ProtocolVersion server = ProtocolVersion.parse(helloResult.protocol());
+        return server.major() == required.major() && server.minor() > required.minor();
     }
 
     @Override
@@ -645,7 +654,8 @@ public final class MinecraftRemote implements AutoCloseable {
         return List.copyOf(result);
     }
 
-    private static EventPollResult decodeEventPollResult(JsonNode value)
+    private static EventPollResult decodeEventPollResult(
+            JsonNode value, boolean ignoreUnknownEventTypes)
             throws ProtocolException {
         if (value == null || !value.isObject()) {
             throw new ProtocolException("events.poll result must be an object");
@@ -656,7 +666,7 @@ public final class MinecraftRemote implements AutoCloseable {
         }
         List<MinecraftEvent> events = new ArrayList<>();
         for (JsonNode event : eventsNode) {
-            events.add(decodeEvent(event));
+            decodeEvent(event, ignoreUnknownEventTypes).ifPresent(events::add);
         }
         try {
             return new EventPollResult(
@@ -675,16 +685,24 @@ public final class MinecraftRemote implements AutoCloseable {
         }
     }
 
-    private static MinecraftEvent decodeEvent(JsonNode value) throws ProtocolException {
+    private static Optional<MinecraftEvent> decodeEvent(
+            JsonNode value, boolean ignoreUnknownEventTypes) throws ProtocolException {
         if (value == null || !value.isObject()) {
             throw new ProtocolException("events.poll event must be an object");
         }
         String type = requiredText(value, "type", "events.poll event");
+        boolean knownType = switch (type) {
+            case "pickaxe_poke", "chat_posted", "projectile_hit" -> true;
+            default -> false;
+        };
+        if (!knownType && ignoreUnknownEventTypes) {
+            return Optional.empty();
+        }
         long sequence = requiredPositiveLong(value, "sequence", "events.poll event");
         String dimension = requiredText(value, "dimension", "events.poll event");
         BlockPosition origin = blockPosition(value.get("origin"), "events.poll event.origin");
         try {
-            return switch (type) {
+            return Optional.of(switch (type) {
                 case "pickaxe_poke" -> new MinecraftEvent.PickaxePoke(
                         sequence,
                         dimension,
@@ -707,7 +725,7 @@ public final class MinecraftRemote implements AutoCloseable {
                         vec3(value.get("pos"), "projectile_hit.pos"),
                         decodeProjectileTarget(value.get("target")));
                 default -> throw new ProtocolException("unknown protocol 23 event type: " + type);
-            };
+            });
         } catch (IllegalArgumentException exception) {
             throw new ProtocolException("invalid events.poll " + type + " event", exception);
         }

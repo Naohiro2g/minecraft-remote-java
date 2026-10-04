@@ -96,20 +96,24 @@ final class JsonRpcConnection implements AutoCloseable {
             }
 
             JsonNode responseId = response.get("id");
-            boolean matchingId = responseId != null && responseId.canConvertToLong()
+            boolean matchingId = responseId != null
+                    && responseId.isIntegralNumber()
+                    && responseId.canConvertToLong()
                     && responseId.longValue() == expectedId;
-            if (!matchingId && !response.has("error")) {
+            if (!matchingId) {
                 // Unknown response ids have no pending consumer on this synchronous connection.
                 continue;
-            }
-            if (response.has("error")) {
-                throw decodeRemoteError(response.get("error"));
             }
             if (!"2.0".equals(response.path("jsonrpc").asText())) {
                 throw new ProtocolException("response jsonrpc must be 2.0");
             }
-            if (!response.has("result")) {
-                throw new ProtocolException("response contains neither result nor error");
+            boolean hasResult = response.has("result");
+            boolean hasError = response.has("error");
+            if (hasResult == hasError) {
+                throw new ProtocolException("response must contain exactly one of result or error");
+            }
+            if (hasError) {
+                throw decodeRemoteError(response.get("error"));
             }
             return response.get("result");
         }
@@ -117,7 +121,10 @@ final class JsonRpcConnection implements AutoCloseable {
 
     private static RemoteCallException decodeRemoteError(JsonNode error)
             throws ProtocolException {
-        if (error == null || !error.isObject() || !error.path("code").canConvertToInt()) {
+        if (error == null
+                || !error.isObject()
+                || !error.path("code").isIntegralNumber()
+                || !error.path("code").canConvertToInt()) {
             throw new ProtocolException("invalid JSON-RPC error object");
         }
         int code = error.path("code").intValue();

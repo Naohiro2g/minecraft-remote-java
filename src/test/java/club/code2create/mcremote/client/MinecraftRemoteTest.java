@@ -91,7 +91,7 @@ class MinecraftRemoteTest {
                         assertEquals(1, postToChat.path("params").size());
                         assertEquals(
                                 "Hello from Java!", postToChat.path("params").get(0).asText());
-                        connection.result(postToChat, Map.of("delivered", true));
+                        connection.result(postToChat, null);
 
                         ObjectNode setBlocks = connection.readRequest();
                         assertRequest(setBlocks, 3, "world.setBlocks");
@@ -113,6 +113,27 @@ class MinecraftRemoteTest {
                 client.postToChat("Hello from Java!");
                 client.setBlocks(
                         -2, 10, -3, 4, 11, 5, BlockSpec.of("minecraft:stone"));
+            }
+            peer.await();
+        }
+    }
+
+    @Test
+    void rejectsANonNullChatPostSuccessResult() throws Exception {
+        try (ScriptedPeer peer = new ScriptedPeer(
+                server -> {
+                    try (ScriptedPeer.PeerConnection connection = server.accept()) {
+                        ObjectNode hello = connection.readRequest();
+                        connection.result(hello, helloResult("23.0.0"));
+                        ObjectNode postToChat = connection.readRequest();
+                        connection.result(postToChat, Map.of("delivered", true));
+                    }
+                })) {
+            try (MinecraftRemote client = MinecraftRemote.builder("127.0.0.1", peer.port()).connect()) {
+                ProtocolException exception = assertThrows(
+                        ProtocolException.class,
+                        () -> client.postToChat("Hello from Java!"));
+                assertEquals("chat.post success result must be null", exception.getMessage());
             }
             peer.await();
         }

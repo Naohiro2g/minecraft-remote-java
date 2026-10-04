@@ -114,13 +114,17 @@ final class ScriptedPeer implements AutoCloseable {
         }
 
         void error(ObjectNode request, int code, String message, String reason) throws IOException {
+            error(request.path("id").longValue(), code, message, reason);
+        }
+
+        void error(long id, int code, String message, String reason) throws IOException {
             ObjectNode error = MAPPER.createObjectNode();
             error.put("code", code);
             error.put("message", message);
             error.set("data", MAPPER.valueToTree(Map.of("reason", reason)));
             ObjectNode response = MAPPER.createObjectNode();
             response.put("jsonrpc", "2.0");
-            response.set("id", request.get("id"));
+            response.put("id", id);
             response.set("error", error);
             write(response);
         }
