@@ -39,7 +39,7 @@ memory、過去会話、ローカル推論から欠けたMcRemote文脈を補完
 ## このrepository固有の指示
 
 - build／testにはrepositoryのGradle wrapperを使う。
-- Java targetは21、root packageは`club.code2create.mcremote.client`とする。
+- build／実行にはJDK 21または25を使い、Javaの選択・切り替えはmiseを正準とする。生成するclassfileのJava targetは21を維持し、root packageは`club.code2create.mcremote.client`とする。
 - Maven coordinateの確定部分は`club.code2create.mcremote:minecraft-remote-client`とし、Gradle project名やrepository名から置換しない。
 - 公開versionは未確定であり、Gradle project名を公開versionとみなさない。
 - publish plugin、registry coordinate、release workflowはknowledge SSOTで確定するまで追加しない。

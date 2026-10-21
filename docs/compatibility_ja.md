@@ -13,6 +13,9 @@
 同一majorの新しいminorを接続時に受理することと、追加されたすべてのAPIをこのJava版が投影することは別です。
 現時点で実装・検証している範囲は次の表です。
 
+Javaの引数・戻り値の型は[生成APIリファレンス](java-api-reference_ja.md)、使い方は
+[短い作例](java-examples_ja.md)を参照してください。
+
 ## 現在のAPI一覧
 
 | Java API | wire method | 戻り値／役割 |
@@ -42,17 +45,30 @@
 b7以降で追加されたdirection／entity lifecycle、b8のsound／typed particle／receiverは、このcheckoutのAPIに含みません。
 Javaはb8／b9 release trainへ無理に同期せず、初回stable公開後に対象releaseを固定して追従します。
 
+rc1時点で調べた新ownerの取得経路と、初回stable後の着手順序は
+[Java追従準備](post-latest-plan_ja.md)を参照してください。
+
 ## 決定論的な検証
 
-repositoryのGradle wrapperとJDK 21を使います。
+repositoryのGradle wrapperと、miseで選んだJDK 21または25を使います。classfileのtargetは21です。
 
 ```bash
-./gradlew test --rerun-tasks
-./gradlew build
+mise exec -- ./gradlew test --rerun-tasks
+mise exec -- ./gradlew build
 ```
 
 unit／deterministic testはloopbackのscripted peerを起動し、外部Minecraft serverを必要としません。hello、pairing、
 credential lifecycle、protocol mismatch、JSON-RPC error、block操作、catalog、pose、events、particle、signを検証します。
+
+2026-10-21に、miseで選んだJDK 21／25の両方でbuildと全testを実行しました。
+
+| build／testのJDK | 実行コマンド | 結果 |
+| --- | --- | --- |
+| 21.0.2 | `mise exec java@21 -- ./gradlew build --rerun-tasks` | core 23＋examples 20＝43件PASS |
+| 25.0.2 | `mise exec java@25 -- ./gradlew build --rerun-tasks` | core 23＋examples 20＝43件PASS |
+
+どちらもAPIリファレンスの生成・一致確認がPASSし、core／examples JARの全classfileがmajor 65（Java 21）でした。
+`mise.toml`は通常利用のJDK 21を選び、CIにはJDK 21／25のmatrixを設定しています。CIのremote実行はまだ行っていません。
 
 ## Fixtureの取得元
 
@@ -83,6 +99,44 @@ protocol 23.0.0の実serverで、次を確認済みです。
 
 この記録は比較基線の実績です。初回stable追従時は、新しいtooling ownerと取得経路だけを使って対象artifactを固定し、
 同等のconsumer検証を改めて行います。
+
+## 2026-10-21のサンプル確認
+
+Javaの要求protocolは`23.0.0`のまま、`23.2.1`を返すMinecraft `1.21.11`の実サーバーへ接続しました。
+この確認は現在のサンプルのconsumer検証であり、稼働JARのdigestを固定したrelease gateではありません。
+
+| サンプル | 実サーバーでの結果 |
+| --- | --- |
+| MyWorld／Hello | pairing・認証後のチャット送信に成功 |
+| `inspect` | player pose、権限snapshot、catalog取得に成功。block 1166／entity 157／particle 115 |
+| `events` | 空のevent ringへ20回の有限pollを完了。非空eventの目視確認は今回未実施 |
+| `01` | 絶対`(302,96,302)`へgold blockを設置し、同じIDを読み返してOK。cleanupの成功後、再設置も成功 |
+| `02` | catalog、pose read、看板set／1行update／get、particle accepted=30、event pollに成功。看板cleanup後の再実行も成功 |
+| `axis-flat` | X/Z=`252..348`、絶対Y=`63..127`の整地とY=62の床、XYZ軸の描画を完了 |
+| メニューの`r` | 同じprocess内のtokenで再接続し、pairingなしでhello・catalog・pose readに成功 |
+| プロセスの再起動 | `--save menu`で取得したtokenを保護されたOS storeへ保存し、終了後の別processの`--save hello`がpairingなしで接続・チャット送信に成功 |
+
+初回の書き込みは`build_denied`で拒否されました。Scratchからも再現したとのhuman owner報告があり、
+サーバー側の設置数meta設定を修正した後、新しい接続で上記の書き込み確認に成功しました。
+拒否される前にチャット送信やcatalog取得が成功していても、block setter固有のポリシーを満たす証明にはなりません。
+拒否された操作をJava側で迂回・自動再試行する処理は追加していません。
+
+human ownerの画像では、XYZ軸、金ブロック、看板のgold太字とaquaの行を確認しました。
+particleの目視表示は画像から追加主張しません。画像では長い看板文言が表示幅で切れていたため、
+試作ソースの先頭2行を`McRemote`／`Java Client`へ短縮しています。画像は短縮前ですが、
+後続の実サーバー実行では短縮した4行の読み返しにも成功し、現在の看板は短縮後の文言です。
+整地・XYZ軸、金ブロック、看板は観察用に残しています。`axis-flat-clear`の実サーバー確認は今回行っていません。
+
+`ExampleProtocolCompatibilityTest`は、既存・追加サンプルの本体をloopback TCPの23.2.1 peerへ接続します。
+既存のevents／sign fixtureの応答を消費し、chatの`null`、block write/read、sign／particle、event cursor、
+整地のrequest分割、拒否後のメニュー継続、同じtokenでの再接続を検証します。
+サーバーの権限設定やPaper上の描画・物理動作は、このdeterministic testの検証範囲に含めません。
+今回のfull buildではcore 23件＋examples 20件、計43件がPASSしました。
+
+```bash
+./gradlew :examples:test --tests '*ExampleProtocolCompatibilityTest'
+./gradlew build
+```
 
 ## B9 freeze前の契約監査
 

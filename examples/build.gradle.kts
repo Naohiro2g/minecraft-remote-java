@@ -6,7 +6,7 @@ plugins {
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(JavaVersion.current().majorVersion.toInt())
     }
 }
 
@@ -22,6 +22,7 @@ dependencies {
 
     testImplementation(platform("org.junit:junit-bom:6.1.2"))
     testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation("com.fasterxml.jackson.core:jackson-databind:2.21.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -42,10 +43,15 @@ tasks.test {
     useJUnitPlatform()
 }
 
+sourceSets.test {
+    resources.srcDir(rootProject.file("src/test/resources"))
+}
+
 tasks.register<JavaExec>("demo") {
     group = "application"
     description = "Runs the Minecraft Remote for Java learning examples."
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass.set(application.mainClass)
     standardInput = System.`in`
+    javaLauncher.set(javaToolchains.launcherFor(java.toolchain))
 }

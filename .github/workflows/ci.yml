@@ -11,6 +11,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: [21, 25]
 
     steps:
       - name: Checkout
@@ -22,7 +25,7 @@ jobs:
         uses: actions/setup-java@v6
         with:
           distribution: corretto
-          java-version-file: .java-version
+          java-version: ${{ matrix.java }}
           cache: gradle
 
       - name: Build

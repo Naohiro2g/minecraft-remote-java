@@ -44,8 +44,8 @@ public final class Demo02Protocol23Tour {
                 signY,
                 SIGN_Z,
                 Sign.Content.front(List.of(
-                        Sign.LineSpec.styled("Minecraft Remote", "gold", Sign.Decoration.BOLD),
-                        Sign.LineSpec.plain("Java / protocol 23"),
+                        Sign.LineSpec.styled("McRemote", "gold", Sign.Decoration.BOLD),
+                        Sign.LineSpec.plain("Java Client"),
                         Sign.LineSpec.plain("catalog + events"),
                         Sign.LineSpec.plain("sign + particle"))));
         minecraft.updateSignLine(
@@ -88,5 +88,12 @@ public final class Demo02Protocol23Tour {
         System.out.printf(
                 "相対座標(%d, %d, %d)の看板とflame particleをMinecraftで確認してください。%n",
                 SIGN_X, signY, SIGN_Z);
+        System.out.println("看板の除去: ./gradlew demo --args=02-cleanup（以前のブロックは復元しません）");
+    }
+
+    static void cleanup(MinecraftRemote minecraft) throws MinecraftRemoteException {
+        ExampleWorkspace.select(minecraft);
+        minecraft.setBlock(SIGN_X, AxisFlat.axisY(minecraft), SIGN_Z, BlockSpec.of("minecraft:air"));
+        System.out.println("Demo 02の看板の位置をairにしました。以前のブロックは復元しません。");
     }
 }

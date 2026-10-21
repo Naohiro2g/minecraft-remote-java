@@ -3,6 +3,7 @@ package club.code2create.mcremote.examples;
 import club.code2create.mcremote.client.CredentialStore;
 import club.code2create.mcremote.client.MinecraftRemote;
 import club.code2create.mcremote.client.MinecraftRemoteException;
+import club.code2create.mcremote.client.RemoteCallException;
 import club.code2create.mcremote.client.ServerTarget;
 import java.util.Locale;
 import java.util.Scanner;
@@ -35,30 +36,49 @@ public final class Main {
 
         Scanner scanner = new Scanner(System.in);
         CredentialStore credentialStore = credentials.select(options.credentialMode(), scanner);
-        try (MinecraftRemote minecraft = connect(target, credentialStore)) {
-            printConnection(minecraft);
-            if ("menu".equals(options.selection())) {
-                runMenu(minecraft, scanner);
-            } else {
-                runSelected(options.selection(), minecraft);
+        runConnected(target, credentialStore, options.selection(), scanner);
+    }
+
+    static void runConnected(ServerTarget target, CredentialStore credentialStore,
+            String selection, Scanner scanner) throws MinecraftRemoteException {
+        boolean reconnect;
+        do {
+            reconnect = false;
+            try (MinecraftRemote minecraft = connect(target, credentialStore)) {
+                printConnection(minecraft);
+                if ("menu".equals(selection)) {
+                    reconnect = runMenu(minecraft, scanner);
+                } else {
+                    runSelected(selection, minecraft);
+                }
             }
-        }
+        } while (reconnect);
     }
 
     static void run(String selection) throws MinecraftRemoteException {
         main(new String[] {selection});
     }
 
-    private static void runMenu(MinecraftRemote minecraft, Scanner scanner)
+    static boolean runMenu(MinecraftRemote minecraft, Scanner scanner)
             throws MinecraftRemoteException {
         while (true) {
             printExamples();
-            System.out.print("実行する項目を入力してください（xで終了）: ");
+            System.out.print("実行する項目を入力してください（rで再接続、xで終了）: ");
             String selection = scanner.nextLine().trim();
             if ("x".equalsIgnoreCase(selection)) {
-                return;
+                return false;
             }
-            runSelected(selection, minecraft);
+            if ("r".equalsIgnoreCase(selection)) {
+                return true;
+            }
+            try {
+                runSelected(selection, minecraft);
+            } catch (RemoteCallException exception) {
+                System.out.println("サーバーが操作を拒否しました: " + exception.reason().orElse("unknown"));
+                if (exception.reason().filter("build_denied"::equals).isPresent()) {
+                    System.out.println("inspectで原点と建築範囲を確認してください。1回の設置数上限は管理者へ確認してください。");
+                }
+            }
         }
     }
 
@@ -118,6 +138,9 @@ public final class Main {
             case "01", "set-and-read", "setblock" -> Demo01SetAndReadBlock.run(minecraft);
             case "01-cleanup", "setblock-cleanup" -> Demo01SetAndReadBlock.cleanup(minecraft);
             case "02", "protocol23", "capabilities" -> Demo02Protocol23Tour.run(minecraft);
+            case "02-cleanup" -> Demo02Protocol23Tour.cleanup(minecraft);
+            case "03", "inspect" -> Demo03InspectWorld.run(minecraft);
+            case "04", "events" -> Demo04Events.run(minecraft);
             case "axis-flat", "axis" -> AxisFlat.prepare(minecraft);
             case "axis-flat-clear", "axis-clear" -> AxisFlat.clearAxes(minecraft);
             default -> {
@@ -135,6 +158,9 @@ public final class Main {
         System.out.println("  01 / setblock    ブロックを置いて読み返す");
         System.out.println("  01-cleanup       01が置いたブロックをairに戻す");
         System.out.println("  02 / protocol23  catalog／pose／events／particle／signを観察する");
+        System.out.println("  02-cleanup       02の看板をairに戻す");
+        System.out.println("  03 / inspect     現在位置・建築範囲・ブロック名を調べる（読み取り専用）");
+        System.out.println("  04 / events      10秒間だけツルハシ・チャットなどのイベントを読む");
         System.out.println("  axis-flat        許可範囲内を整地してXYZ軸を描く（worldを変更）");
         System.out.println("  axis-flat-clear  XYZ軸だけ消す（平面は残る）");
         System.out.println();
