@@ -284,7 +284,9 @@ class Protocol23CapabilitiesTest {
     void skipsUnknownEventsFromANewerMinorAndPreservesPollProgress() throws Exception {
         Map<String, Object> result = Map.of(
                 "events",
-                        List.of(Map.of("sequence", 4, "type", "future_event")),
+                        List.of(Map.of(
+                                "sequence", 4, "type", "future_event",
+                                "dimension", "minecraft:overworld", "origin", List.of(200, 0, 200))),
                 "through_sequence", 4,
                 "latest_sequence", 5,
                 "filtered_out", 1,
@@ -328,6 +330,9 @@ class Protocol23CapabilitiesTest {
         assertFixtureDigest(
                 "spawn-v22.json",
                 "1120e6c8d41b05b65c916fa96f496b02884123ec7ef59b0a226eea48bebf3abd");
+        assertFixtureDigest(
+                "chat-event-compat-v23.2.1.json",
+                "eead244a7340c315cb63e1e77ede0fe9cf48162c06fedbeef36d941950d5000d");
     }
 
     @Test

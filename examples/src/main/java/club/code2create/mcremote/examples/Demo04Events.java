@@ -14,16 +14,18 @@ public final class Demo04Events {
 
     static void run(MinecraftRemote minecraft) throws MinecraftRemoteException {
         System.out.println("約10秒間、ツルハシでの右クリックやチャット投稿を観察します。");
-        long cursor = 0; // この接続のevent ringの先頭から読む。
+        var result = minecraft.pollEvents(0, 16); // この接続のevent ringの先頭から読む。
         for (int i = 0; i < 20; i++) {
-            var result = minecraft.pollEvents(cursor, 16);
+            if (i > 0) {
+                // 前回snapshotを渡すと、cursorに加えて累積counterの後退も検出する。
+                result = minecraft.pollEvents(result, 16);
+            }
             for (var event : result.events()) {
                 System.out.printf("#%d %s%n", event.sequence(), event);
             }
             // 知らないeventが省略されても、サーバーが返すcursorを使って先へ進む。
-            cursor = result.throughSequence();
             System.out.printf("cursor=%d / loss totals: overflow=%d capacity=%d discarded=%d%n",
-                    cursor, result.overflowDroppedTotal(), result.capacityDroppedTotal(),
+                    result.throughSequence(), result.overflowDroppedTotal(), result.capacityDroppedTotal(),
                     result.explicitlyDiscardedTotal());
             if (i < 19) {
                 try {

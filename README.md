@@ -152,7 +152,7 @@ build・test・サンプルの実行にはmiseで選んだJDKを使います。�
 
 API一覧はJavaソースと[日本語の説明](tools/api-reference/descriptions_ja.properties)から生成します。
 `build`は生成結果との一致も確認します。Javadocは`build/docs/javadoc/index.html`へ出力されます。
-[初回stable後の作業計画](docs/post-latest-plan_ja.md)も参照できます。
+[初回stable後の作業計画](docs/post-latest-plan_ja.md)と、[多言語化に向けたJava対応表・開発体験の評価](docs/polyglot-e1_ja.md)も参照できます。
 
 Maven公開は準備中です。確定しているcoordinateは`club.code2create.mcremote:minecraft-remote-client`で、
 公開version・publish経路はまだありません。設計の正本は[knowledge](https://github.com/Naohiro2g/mc-remote-knowledge)にあります。

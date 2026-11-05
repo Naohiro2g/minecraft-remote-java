@@ -118,6 +118,15 @@ for (int i = 0; i < 3; i++) {
 これは3回だけ、待ち時間を入れずに読む短い例です。操作を待ちながら観察する場合はDemo04を使います。
 返ったeventが空でも、サーバーが返す`throughSequence()`へcursorを進めます。
 `overflowDroppedTotal()`などは取りこぼしの累積値です。新しい接続ではcursorを0から始めます。
+同じ接続で前回のsnapshotを渡すと、latest sequenceと各loss counterの後退も検出します。
+
+```java
+var previous = minecraft.pollEvents(0, 16);
+var next = minecraft.pollEvents(previous, 16);
+```
+
+失敗した呼び出しでは前回snapshotを保持します。再接続では古いsnapshotを引き継がず、0から読み始めます。
+cursorを数値で指定するAPIは再取得にも使えるため、前回counterとの比較はしません。
 eventの位置を建築に使う場合は、eventの次元と原点が現在の`buildContext()`と一致するか確認してください。
 
 ## 拒否理由を調べる

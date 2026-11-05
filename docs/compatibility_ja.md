@@ -7,7 +7,8 @@
 
 - Clientが要求するprotocol: `23.0.0`
 - 接続判定: serverのmajorが23で、minorが0以上なら受理する。patchは接続判定に使わない
-- 実装とfixtureを固定した比較基線: protocol `23.0.0`／artifact `2300.0.0b6`
+- 現在の追従対象: 初回stable `2321.0.0`／protocol `23.2.1`（[固定identityと検証](polyglot-e1_ja.md)）
+- bootstrap時の比較基線（履歴）: protocol `23.0.0`／artifact `2300.0.0b6`
 - 実serverで確認済み: Minecraft `1.21.11`／Paper `1.21.11-132`
 
 同一majorの新しいminorを接続時に受理することと、追加されたすべてのAPIをこのJava版が投影することは別です。
@@ -43,10 +44,10 @@ Javaの引数・戻り値の型は[生成APIリファレンス](java-api-referen
 `world.spawnParticle`はprotocol 23のdata不要形と`force`だけを投影します。
 
 b7以降で追加されたdirection／entity lifecycle、b8のsound／typed particle／receiverは、このcheckoutのAPIに含みません。
-Javaはb8／b9 release trainへ無理に同期せず、初回stable公開後に対象releaseを固定して追従します。
+Javaはb8／b9 release trainに同期せず、初回stableの公開sourceを固定して既存投影を照合しました。
+追従対象の更新は全capabilityの実装完了を意味しません。要求protocolは実装済み機能に足りる`23.0.0`を維持します。
 
-rc1時点で調べた新ownerの取得経路と、初回stable後の着手順序は
-[Java追従準備](post-latest-plan_ja.md)を参照してください。
+[Java追従計画](post-latest-plan_ja.md)と、[E1のJava対応表・DX評価](polyglot-e1_ja.md)を参照してください。
 
 ## 決定論的な検証
 
@@ -68,25 +69,32 @@ credential lifecycle、protocol mismatch、JSON-RPC error、block操作、catalo
 | 25.0.2 | `mise exec java@25 -- ./gradlew build --rerun-tasks` | core 23＋examples 20＝43件PASS |
 
 どちらもAPIリファレンスの生成・一致確認がPASSし、core／examples JARの全classfileがmajor 65（Java 21）でした。
-`mise.toml`は通常利用のJDK 21を選び、CIにはJDK 21／25のmatrixを設定しています。CIのremote実行はまだ行っていません。
+`mise.toml`は通常利用のJDK 21を選び、CIにはJDK 21／25のmatrixを設定しています。今回差分のremote CIは未実行です。
+
+## 2026-11-04のstable追従slice
+
+| build／testのJDK | 実行コマンド | 結果 |
+| --- | --- | --- |
+| 21.0.13 | `mise exec java@21 -- ./gradlew generateApiReference build javadoc` | core 56＋examples 20＝76件PASS |
+| 25.0.5 | `mise exec java@25 -- ./gradlew build` | core 56＋examples 20＝76件PASS |
+
+failure／error／skipは0。生成API一致、両JDKでcore／examplesの全classfileがmajor 65も確認しました。
+Javadoc生成は成功し、従来のコメント不足の警告があります。今回差分のremote CIと実サーバー試験は未実施です。
+[JavaのE1入力・DX評価](polyglot-e1_ja.md)に対象sourceと未対応範囲を記録しています。
 
 ## Fixtureの取得元
 
-次の3ファイルは、b6に統合されたScratch owner fixtureをbyte-for-byteでvendorしたtest入力です。
+現行ownerは`Naohiro2g/minecraft-remote-tooling`、固定commitは
+`6447f6e8cbfbeeb9d229990b5c4f6e82a5875666`（公開tag `v2321.0.0`）、pathは
+`packages/protocol/test/fixtures/`です。[fixture一覧](../src/test/resources/protocol-fixtures/README.md)に
+4本のdigest、旧Scratch取得履歴、licenseの未反映を記録しています。
+Javaのruntime／buildはlocal copyだけを読み、Scratchやtoolingのruntimeへ依存しません。
 
-- repository: `Naohiro2g/scratch-editor`
-- source commit: `df9264ec355dd722a848df46e96d4b0fc9340ca2`
-- source directory: `mc-remote/protocol/test/fixtures/`
-
-| file | SHA-256 |
-| --- | --- |
-| `events-v23.json` | `31760d267f3c2641042fbe8595fda9c259134a1c05423271a99cb74da1efa9aa` |
-| `sign-v23.json` | `7ffb63c264602cba56117eefff1f9604b955df04c5cc655e877772b8ff7cd30e` |
-| `spawn-v22.json` | `1120e6c8d41b05b65c916fa96f496b02884123ec7ef59b0a226eea48bebf3abd` |
-
-`Protocol23CapabilitiesTest`はfixtureの値をwire testへ接続し、同時にdigestを固定します。`spawn-v22.json`のshapeは
-protocol 23にも変更なく引き継がれています。これらはtest入力であり、Protocol SSOTの代替ではありません。
-Javaのruntime／buildはScratchに依存しません。
+2026-11-04の`SharedCompatibilityFixtureTest`は、追加したchat/event fixtureの33 caseをTCP peer経由で消費します。
+未知eventも共通項目・sequenceを検証してから省略し、既知eventの余分なfieldを拒否します。
+`pollEvents(long, ...)`は応答と指定cursorを照合します。`pollEvents(EventPollResult, ...)`は同じ接続epochの
+前回snapshotも使い、latest sequenceと各累積loss counterの後退を拒否します。数値cursorのAPIは再取得を許し、
+前回counterを暗黙に保持しません。再接続後はcursor 0から開始します。
 
 ## 実serverで確認済みの範囲
 
@@ -97,8 +105,8 @@ protocol 23.0.0の実serverで、次を確認済みです。
 - Linux Secret Service: 保存したsession tokenを別processから再利用し、pairingなしでchat送信
 - 代表capability: catalog、player pose read、sign set／update／get、particle、空event ringのpoll
 
-この記録は比較基線の実績です。初回stable追従時は、新しいtooling ownerと取得経路だけを使って対象artifactを固定し、
-同等のconsumer検証を改めて行います。
+この記録はbootstrap比較基線の実績です。2026-11-04のsliceはstable sourceとfixtureを固定した決定論的検証です。
+今回の実サーバー試験は未実施で、下の23.2.1でのconsumer確認は過去の観測として保持します。
 
 ## 2026-10-21のサンプル確認
 

@@ -254,11 +254,13 @@ void updateSignLine(int x, int y, int z, Sign.Face face, int lineIndex, Sign.Lin
 
 ### `pollEvents`
 
-afterSequenceより後のeventを有限件取得します。次の呼び出しにはthroughSequence()を渡します。maxEventsは正整数。新しい互換minorの未知eventは省略し、cursorとloss counterは保持します。自動監視は始めません。
+afterSequenceより後のeventを有限件取得します。同じ接続epochの前回EventPollResultを渡すと、そのthroughSequenceから読み、latestSequenceと累積loss counterの後退も検出します。再接続後は0から読み直します。maxEventsは正整数。新しい互換minorの未知eventは共通項目と順序を検証して省略し、cursorとloss counterは保持します。自動監視は始めません。
 
 ```java
 EventPollResult pollEvents(long afterSequence) throws MinecraftRemoteException
 EventPollResult pollEvents(long afterSequence, int maxEvents) throws MinecraftRemoteException
+EventPollResult pollEvents(EventPollResult previous) throws MinecraftRemoteException
+EventPollResult pollEvents(EventPollResult previous, int maxEvents) throws MinecraftRemoteException
 ```
 
 対応するProtocol API: `events.poll`。

@@ -228,7 +228,7 @@ public final class MinecraftRemote implements AutoCloseable {
     public EventPollResult pollEvents(long afterSequence) throws MinecraftRemoteException {
         requireNonNegative(afterSequence, "afterSequence");
         return decodeEventPollResult(
-                request("events.poll", List.of(afterSequence)), serverHasNewerMinor());
+                request("events.poll", List.of(afterSequence)), serverHasNewerMinor(), afterSequence);
     }
 
     /** Polls at most {@code maxEvents} events after one sequence cursor. */
@@ -240,7 +240,35 @@ public final class MinecraftRemote implements AutoCloseable {
         }
         return decodeEventPollResult(request(
                         "events.poll", List.of(afterSequence, Map.of("max_events", maxEvents))),
-                serverHasNewerMinor());
+                serverHasNewerMinor(), afterSequence);
+    }
+
+    /**
+     * Continues polling from a previous snapshot from this connection epoch, checking that the
+     * latest sequence and cumulative loss counters do not move backwards. Retain the previous
+     * snapshot if this call fails. Use the sequence overload to replay an older cursor deliberately.
+     */
+    public EventPollResult pollEvents(EventPollResult previous) throws MinecraftRemoteException {
+        Objects.requireNonNull(previous, "previous");
+        return validateEventProgress(pollEvents(previous.throughSequence()), previous);
+    }
+
+    /** Continues a previous snapshot with a positive event limit and checks cumulative progress. */
+    public EventPollResult pollEvents(EventPollResult previous, int maxEvents)
+            throws MinecraftRemoteException {
+        Objects.requireNonNull(previous, "previous");
+        return validateEventProgress(pollEvents(previous.throughSequence(), maxEvents), previous);
+    }
+
+    private static EventPollResult validateEventProgress(
+            EventPollResult current, EventPollResult previous) throws ProtocolException {
+        if (current.latestSequence() < previous.latestSequence()
+                || current.overflowDroppedTotal() < previous.overflowDroppedTotal()
+                || current.capacityDroppedTotal() < previous.capacityDroppedTotal()
+                || current.explicitlyDiscardedTotal() < previous.explicitlyDiscardedTotal()) {
+            throw new ProtocolException("events.poll cumulative progress moved backwards");
+        }
+        return current;
     }
 
     private boolean serverHasNewerMinor() throws ProtocolException {
@@ -655,7 +683,7 @@ public final class MinecraftRemote implements AutoCloseable {
     }
 
     private static EventPollResult decodeEventPollResult(
-            JsonNode value, boolean ignoreUnknownEventTypes)
+            JsonNode value, boolean ignoreUnknownEventTypes, long afterSequence)
             throws ProtocolException {
         if (value == null || !value.isObject()) {
             throw new ProtocolException("events.poll result must be an object");
@@ -664,14 +692,24 @@ public final class MinecraftRemote implements AutoCloseable {
         if (eventsNode == null || !eventsNode.isArray()) {
             throw new ProtocolException("events.poll result.events must be an array");
         }
+        long through = requiredNonNegativeLong(value, "through_sequence", "events.poll result");
+        if (through < afterSequence) {
+            throw new ProtocolException("events.poll cursor moved backwards");
+        }
         List<MinecraftEvent> events = new ArrayList<>();
+        long previousSequence = afterSequence;
         for (JsonNode event : eventsNode) {
+            long sequence = requiredPositiveLong(event, "sequence", "events.poll event");
+            if (sequence <= previousSequence || sequence > through) {
+                throw new ProtocolException("events.poll event sequence is outside the ordered cursor range");
+            }
+            previousSequence = sequence;
             decodeEvent(event, ignoreUnknownEventTypes).ifPresent(events::add);
         }
         try {
             return new EventPollResult(
                     events,
-                    requiredNonNegativeLong(value, "through_sequence", "events.poll result"),
+                    through,
                     requiredNonNegativeLong(value, "latest_sequence", "events.poll result"),
                     requiredNonNegativeLong(value, "filtered_out", "events.poll result"),
                     requiredNonNegativeLong(
@@ -695,12 +733,29 @@ public final class MinecraftRemote implements AutoCloseable {
             case "pickaxe_poke", "chat_posted", "projectile_hit" -> true;
             default -> false;
         };
+        long sequence = requiredPositiveLong(value, "sequence", "events.poll event");
+        String dimension = requiredText(value, "dimension", "events.poll event");
+        if (!dimension.matches("[a-z0-9._-]+:[a-z0-9/._-]+")) {
+            throw new ProtocolException("events.poll event.dimension must be fully qualified");
+        }
+        BlockPosition origin = blockPosition(value.get("origin"), "events.poll event.origin");
         if (!knownType && ignoreUnknownEventTypes) {
             return Optional.empty();
         }
-        long sequence = requiredPositiveLong(value, "sequence", "events.poll event");
-        String dimension = requiredText(value, "dimension", "events.poll event");
-        BlockPosition origin = blockPosition(value.get("origin"), "events.poll event.origin");
+        Set<String> fields = switch (type) {
+            case "pickaxe_poke" -> Set.of(
+                    "sequence", "type", "dimension", "origin", "pos", "face", "block", "hand", "item");
+            case "chat_posted" -> Set.of("sequence", "type", "dimension", "origin", "message");
+            case "projectile_hit" -> Set.of(
+                    "sequence", "type", "dimension", "origin", "projectile", "pos", "target");
+            default -> Set.of();
+        };
+        var fieldNames = value.fieldNames();
+        while (fieldNames.hasNext()) {
+            if (!fields.contains(fieldNames.next())) {
+                throw new ProtocolException("unexpected field in events.poll " + type + " event");
+            }
+        }
         try {
             return Optional.of(switch (type) {
                 case "pickaxe_poke" -> new MinecraftEvent.PickaxePoke(
