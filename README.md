@@ -26,13 +26,20 @@
 ```bash
 git clone https://github.com/Naohiro2g/minecraft-remote-java.git
 cd minecraft-remote-java
+mise --version
 mise trust
 mise install
 mise exec -- java -version
 mise exec -- javac -version
 ```
 
-`mise.toml`の既定はJDK 21です。JDK 25を使う場合は、実行コマンドを
+`mise.toml`はTemurin Java 21を選びます。Java 21／25とも最新の正式パッチを推奨します。
+このrepoではmiseの[`java.shorthand_vendor`](https://mise.jdx.dev/configuration/settings.html#java-shorthand-vendor)を
+`temurin`に明示し、vendorを省略した`java@21`／`java@25`にも同じ選択を使います。
+`mise settings get java.shorthand_vendor`で設定値、上の`java -version`で実際のJDKを確認できます。
+miseの省略時の既定がOpenJDKからTemurinへ変わったのは`2026.10.5`です。最新版のmiseを使い、
+導入済みの旧JDKが自動で切り替わったとはみなさず、`java -version`の表示がTemurinであることを確認してください。
+JDK 25を使う場合は、実行コマンドを
 `mise exec java@25 -- ./gradlew ...`にします。[miseのJava設定](https://mise.jdx.dev/lang/java.html)も参照できます。
 
 既定では同じPCのサーバーへ接続します。別のPCや箱庭を使う場合は、実行するターミナルで設定します。
@@ -149,6 +156,8 @@ mise exec java@25 -- ./gradlew build
 ```
 
 build・test・サンプルの実行にはmiseで選んだJDKを使います。どちらでbuildしても、生成するclassfileのtargetはJava 21です。
+必須CIも同じ`mise.toml`からTemurin 21／25を選び、`mise exec`経由でbuildします。
+[JDK選定の評価](docs/jdk-policy-evaluation_ja.md)に方針と検証範囲をまとめています。
 
 API一覧はJavaソースと[日本語の説明](tools/api-reference/descriptions_ja.properties)から生成します。
 `build`は生成結果との一致も確認します。Javadocは`build/docs/javadoc/index.html`へ出力されます。

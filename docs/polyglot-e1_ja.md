@@ -2,6 +2,8 @@
 
 2026-11-04のJava担当の確認資料です。knowledgeのPhase E／Fと`2026-10-23-01`に従い、Javaのstable追従、
 E1のJava列、Phase Dの評価をまとめます。Protocol契約や他componentの列の正本はknowledgeです。
+2026-11-05のknowledgeからの返却に従い、authの5 methodと未使用fixtureの扱い、mise経由のCI確認を追補します。
+追補時のknowledge参照commitは`a6605fb5d2fff576d87f2ec5b15f0864e9b7c097`です。
 
 ## 参照identity
 
@@ -66,6 +68,33 @@ privateな汎用requestによる呼び出し可能性を、公開APIの投影と
 `auth.pairBegin`／`auth.pairPoll`はmetadataの32行には含まれませんが、接続能力として下表にも含めます。
 `player.getPos`／`setPos`に相当する目的の一部をpose APIで達成できても、独立したwire methodへの投影は「なし」です。
 
+### metadataのauth節
+
+metadataの`auth.methods`にある5 methodを別表で確認します。上の一般method 32行とは分けて数えます。
+
+| Protocol method | Java | API／範囲と根拠 |
+| --- | --- | --- |
+| `auth.pairBegin` | あり（接続処理内） | `Builder.connect()`が認証reasonを受けたときに実行。`MinecraftRemoteTest`のpairing test |
+| `auth.pairPoll` | あり（接続処理内） | 同じ接続処理で承認をpollし、token付きhelloへ進む。同上 |
+| `auth.listCredentials` | なし | 対応するpublic APIとwire呼び出しなし。`CredentialStore`は接続先のlocal tokenを扱うSPIで、serverの長期credential一覧ではない |
+| `auth.revoke` | なし | 対応するpublic APIとwire呼び出しなし。`CredentialStore.clear()`／examplesの`--forget`はlocal削除であり、serverのrevokeではない |
+| `auth.logout` | なし | 対応するpublic APIとwire呼び出しなし。`close()`によるTCP切断を、長期credentialの失効として扱わない |
+
+### Javaが使っていない共有fixture
+
+固定したtooling commit `6447f6e8cbfbeeb9d229990b5c4f6e82a5875666`の
+`packages/protocol/test/fixtures/`は10本です。Javaが使う4本は[fixture一覧](../src/test/resources/protocol-fixtures/README.md)のとおりで、
+残る6本の扱いは次のとおりです。未接続のfixtureを、Java独自testが同じcaseまで検証済みとは数えません。
+
+| 未使用fixture | 現在使っていない理由／予定 |
+| --- | --- |
+| `block-value-v22.json` | 初回Javaのblock testはscripted peerと`BlockSpecTest`で作り、共有fixtureへの接続がまだない。F1で`world.setBlock`／`world.getBlock`のencode／decodeを検証する際、`block_value`等の適用部分を使う予定。StateText／ErrorTextの文字列表現をJavaへそのまま導入する予定ではない |
+| `dimensions-v22.json` | origin／helloの一部はJava独自testで確認しているが、このfixtureは未接続。dimension／build contextの後続sliceで、DimensionKey入力とserver正準出力の適用caseへ接続する予定 |
+| `direction-lightning-v23.1.json` | direction、entity handle、lightningの公開APIが未実装。対応するPhase C sliceで使う予定 |
+| `entity-particle-v23.2.1.json` | entity lifecycle、typed particle／receiver、soundなどの投影が未実装。対応sliceで使う予定。現状のdata不要particleだけの投影を、このfixture全体の検証済みとは扱わない |
+| `chat-event-compat-v23.2.json` | 対象stableに合わせて`chat-event-compat-v23.2.1.json`を消費しているため、履歴版を重複して取り込まない |
+| `entity-particle-v23.2.json` | 履歴版。上の機能を実装するときは、対象stableの`entity-particle-v23.2.1.json`を使う予定 |
+
 ## E1：method以外の能力
 
 | 能力 | Java | 根拠と境界 |
@@ -107,10 +136,12 @@ DXの不足は上表の改善先として捕捉し、独立したPhase D gateに
 - `SharedCompatibilityFixtureTest`：owner fixtureのB9-C01〜C07、B9-E01〜E26の33 case。
   正常／拒否、未知event省略後のcursor・loss保持、既知payload、statefulな後退をTCPで検証する。
   bounded／unboundedの両snapshot overloadを使う
-- JDK 21.0.13：`mise exec java@21 -- ./gradlew generateApiReference build javadoc` がPASS。
-  JDK 25.0.5：`mise exec java@25 -- ./gradlew build` がPASS。
+- Temurin JDK 21.0.13：`mise exec java@21 -- ./gradlew generateApiReference build javadoc` がPASS。
+  Temurin JDK 25.0.5：`mise exec java@25 -- ./gradlew build` がPASS。
   各core 56＋examples 20＝76件、failure／error／skipは0。API生成一致、core／examplesの全classfile major 65も確認。
-  Javadocは既存のコメント不足の警告を伴って生成成功。今回差分のremote CIは未実行
+  Javadocは既存のコメント不足の警告を伴って生成成功。
+  `ef71f56`のremote CIは[run 41989901747](https://github.com/Naohiro2g/minecraft-remote-java/actions/runs/41989901747)で
+  Corretto 21／25の両jobがsuccess。mise経由へ変更したCIの結果は、確認後に本節へ追記する
 - wire文書は前回参照knowledgeとのbyte一致を確認。既存fixture 3本もbyte一致。
   2026-10-21の実サーバー観測は履歴として保持し、stableのexact JARへの新規live PASSにはしない
 - F1のhello／auth／blockの共有scripted caseの新設、F2の各clientでの採用、F3のlive-auto pulseは未実施。

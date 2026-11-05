@@ -1,2 +1,5 @@
+[settings]
+java.shorthand_vendor = "temurin"
+
 [tools]
 java = "21"

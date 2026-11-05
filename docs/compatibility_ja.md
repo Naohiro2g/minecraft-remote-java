@@ -69,17 +69,23 @@ credential lifecycle、protocol mismatch、JSON-RPC error、block操作、catalo
 | 25.0.2 | `mise exec java@25 -- ./gradlew build --rerun-tasks` | core 23＋examples 20＝43件PASS |
 
 どちらもAPIリファレンスの生成・一致確認がPASSし、core／examples JARの全classfileがmajor 65（Java 21）でした。
-`mise.toml`は通常利用のJDK 21を選び、CIにはJDK 21／25のmatrixを設定しています。今回差分のremote CIは未実行です。
+現在の`mise.toml`はTemurinを明示して通常利用のJDK 21を選びます。
+CIも`jdx/mise-action`で同じ`mise.toml`を読み、job全体の`MISE_JAVA_VERSION`で21／25を切り替えて
+`mise exec -- ./gradlew build --no-daemon`を実行する設定へ変更しました。
+[JDK選定の評価](jdk-policy-evaluation_ja.md)に変更理由と、変更前のCorretto CIの結果を記録しています。
 
 ## 2026-11-04のstable追従slice
 
 | build／testのJDK | 実行コマンド | 結果 |
 | --- | --- | --- |
-| 21.0.13 | `mise exec java@21 -- ./gradlew generateApiReference build javadoc` | core 56＋examples 20＝76件PASS |
-| 25.0.5 | `mise exec java@25 -- ./gradlew build` | core 56＋examples 20＝76件PASS |
+| Temurin 21.0.13 | `mise exec java@21 -- ./gradlew generateApiReference build javadoc` | core 56＋examples 20＝76件PASS |
+| Temurin 25.0.5 | `mise exec java@25 -- ./gradlew build` | core 56＋examples 20＝76件PASS |
 
 failure／error／skipは0。生成API一致、両JDKでcore／examplesの全classfileがmajor 65も確認しました。
-Javadoc生成は成功し、従来のコメント不足の警告があります。今回差分のremote CIと実サーバー試験は未実施です。
+Javadoc生成は成功し、従来のコメント不足の警告があります。
+`ef71f56`のremote CIは[run 41989901747](https://github.com/Naohiro2g/minecraft-remote-java/actions/runs/41989901747)で
+Corretto 21／25の両jobがsuccessでした。mise経由へ変更したCIの結果は、確認後に追記します。
+今回の実サーバー試験は未実施です。
 [JavaのE1入力・DX評価](polyglot-e1_ja.md)に対象sourceと未対応範囲を記録しています。
 
 ## Fixtureの取得元
