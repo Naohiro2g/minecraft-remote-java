@@ -92,5 +92,8 @@ vendor省略時の既定がOpenJDKからTemurinへ変わったのは
   `mise exec -- ./gradlew build --no-daemon`が成功しました。両系列で既存のcore 56＋examples 20件の
   成功結果をGradle build cacheから再利用しています。生成API一致、classfile major 65も確認しました。
 - workflowのYAML構文と、mise-action／setup-gradleの入力名を公式Action定義で照合しました。
-- CIをmise経由のTemurinへ変更した後のGitHub Actions実行は、push後に別途確認します。
-  localのTemurinでPASSしていることと、GitHub上で新しいworkflowがPASSすることを区別します。
+- mise経由へ変更したcommit `3bfe40d5046829ba840ecbed3bcd0238d4484b04`の
+  [CI run 42011884570](https://github.com/Naohiro2g/minecraft-remote-java/actions/runs/42011884570)も、両jobがsuccessでした。
+  2026-11-06にCIログでTemurin `21.0.13+9`／`25.0.5+8`、mise `2026.10.25`と
+  `BUILD SUCCESSFUL`を確認しました（[job別の実Javaとログ](compatibility_ja.md#2026-11-06のmise-ci確認)）。
+  旧Corretto CIとlocal buildに加え、新しいGitHub Actionsの構成でも実動を確認できています。

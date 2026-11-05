@@ -3,7 +3,7 @@
 2026-11-04のJava担当の確認資料です。knowledgeのPhase E／Fと`2026-10-23-01`に従い、Javaのstable追従、
 E1のJava列、Phase Dの評価をまとめます。Protocol契約や他componentの列の正本はknowledgeです。
 2026-11-05のknowledgeからの返却に従い、authの5 methodと未使用fixtureの扱い、mise経由のCI確認を追補します。
-追補時のknowledge参照commitは`a6605fb5d2fff576d87f2ec5b15f0864e9b7c097`です。
+追補時のknowledge参照commitは`a6605fb5d2fff576d87f2ec5b15f0864e9b7c097`です。CIログは2026-11-06に照合しました。
 
 ## 参照identity
 
@@ -141,7 +141,10 @@ DXの不足は上表の改善先として捕捉し、独立したPhase D gateに
   各core 56＋examples 20＝76件、failure／error／skipは0。API生成一致、core／examplesの全classfile major 65も確認。
   Javadocは既存のコメント不足の警告を伴って生成成功。
   `ef71f56`のremote CIは[run 41989901747](https://github.com/Naohiro2g/minecraft-remote-java/actions/runs/41989901747)で
-  Corretto 21／25の両jobがsuccess。mise経由へ変更したCIの結果は、確認後に本節へ追記する
+  Corretto 21／25の両jobがsuccess。
+  mise移行commit `3bfe40d5046829ba840ecbed3bcd0238d4484b04`の[run 42011884570](https://github.com/Naohiro2g/minecraft-remote-java/actions/runs/42011884570)も
+  両jobがsuccess。CIログでTemurin `21.0.13+9`／`25.0.5+8`、javac `21.0.13`／`25.0.5`と
+  `BUILD SUCCESSFUL`を確認した（[ログ参照と詳細](compatibility_ja.md#2026-11-06のmise-ci確認)）
 - wire文書は前回参照knowledgeとのbyte一致を確認。既存fixture 3本もbyte一致。
   2026-10-21の実サーバー観測は履歴として保持し、stableのexact JARへの新規live PASSにはしない
 - F1のhello／auth／blockの共有scripted caseの新設、F2の各clientでの採用、F3のlive-auto pulseは未実施。

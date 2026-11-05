@@ -84,9 +84,33 @@ CIも`jdx/mise-action`で同じ`mise.toml`を読み、job全体の`MISE_JAVA_VER
 failure／error／skipは0。生成API一致、両JDKでcore／examplesの全classfileがmajor 65も確認しました。
 Javadoc生成は成功し、従来のコメント不足の警告があります。
 `ef71f56`のremote CIは[run 41989901747](https://github.com/Naohiro2g/minecraft-remote-java/actions/runs/41989901747)で
-Corretto 21／25の両jobがsuccessでした。mise経由へ変更したCIの結果は、確認後に追記します。
+Corretto 21／25の両jobがsuccessでした。mise経由へ変更したCIの結果は次節に記録しています。
 今回の実サーバー試験は未実施です。
 [JavaのE1入力・DX評価](polyglot-e1_ja.md)に対象sourceと未対応範囲を記録しています。
+
+## 2026-11-06のmise CI確認
+
+mise経由へ移行したcommit `3bfe40d5046829ba840ecbed3bcd0238d4484b04`の
+[CI run 42011884570](https://github.com/Naohiro2g/minecraft-remote-java/actions/runs/42011884570)は、JDK 21／25の両jobがsuccessでした。
+2026-11-06にGitHub APIでrunの`head_sha`と各jobの結論を照合し、CIログの`Check Java`と`Build`を読みました。
+ログの実行日時は2026-11-05 UTCです。
+
+| job／CIログ | 実際のJava配布元・版 | javac | 結果 |
+| --- | --- | --- | --- |
+| [build (21)](https://github.com/Naohiro2g/minecraft-remote-java/actions/runs/42011884570/job/127192686251) | Eclipse Temurin `21.0.13+9`（`21.0.13+9-LTS`） | `21.0.13` | success、Buildは`BUILD SUCCESSFUL` |
+| [build (25)](https://github.com/Naohiro2g/minecraft-remote-java/actions/runs/42011884570/job/127192685877) | Eclipse Temurin `25.0.5+8`（`25.0.5+8-LTS`） | `25.0.5` | success、Buildは`BUILD SUCCESSFUL` |
+
+`Check Java`のログには、それぞれ次の実出力があります。
+
+```text
+OpenJDK Runtime Environment Temurin-21.0.13+9 (build 21.0.13+9-LTS)
+OpenJDK Runtime Environment Temurin-25.0.5+8 (build 25.0.5+8-LTS)
+```
+
+両jobともmiseの実版は`2026.10.25 linux-x64`です。
+`mise exec -- ./gradlew build --no-daemon`が成功し、coreとexamplesのtest taskも実行されています。
+mise Actionの導入・matrixの選択・Gradle cacheのstepもsuccessでした。
+この結果は上記commitのunit／deterministicのCI確認であり、新規の実Minecraftサーバー試験を含みません。
 
 ## Fixtureの取得元
 
