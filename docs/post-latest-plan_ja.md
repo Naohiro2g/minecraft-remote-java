@@ -1,6 +1,6 @@
 # 初回stable後のJava追従計画
 
-2026-11-04更新。多言語化のPhase E／Fへ渡すJava側の作業です。対象releaseとJava対応表・DX評価は
+2026-11-06更新。多言語化のPhase E／Fへ渡すJava側の作業です。対象releaseとJava対応表・DX評価は
 [E1確認資料](polyglot-e1_ja.md)、現在のAPIは[対応範囲](compatibility_ja.md)を参照してください。
 
 ## 仕上げた範囲
@@ -48,8 +48,10 @@ mode名とdelayはwireへ送らない。実装の進捗に合わせ、E1のJava�
 
 ## knowledgeへ返す事項
 
-[E1確認資料](polyglot-e1_ja.md)の搬送票を入力として、Java列とDX評価をknowledgeのinventoryへ集約してもらう。
-fixtureのMIT化はSSOTで確定しているが、現在のtooling sourceではdirectoryのLICENSEが未配置なので、その反映を確認する。
+E1のJava列・DX評価はknowledge `8c81c0f115127189de117c3848d1e254f79571c9`のinventoryとJava spokeへ着地確認済み。
+[E1確認資料](polyglot-e1_ja.md)はJava側の根拠として保持する。
+fixtureのMIT LICENSEはtooling `21a2a9a0aed8b4d9c715da46616aad86f1174b4c`で反映済み。
+Javaのfixture取得元もそのcommitへ固定し、LICENSEをcopyへ添えた。使用中4本のbytesとSHA-256は変わっていない。
 Java側の検証成功をtooling移管全体やPhase E／Fの完了判定にしない。
 
 TypeScriptはF1の範囲がそろってから開始し、C#はTypeScriptのPhase Bが通ってから開始する。

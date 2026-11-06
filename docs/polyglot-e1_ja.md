@@ -18,6 +18,7 @@ E1のJava列、Phase Dの評価をまとめます。Protocol契約や他componen
 - 両releaseの公開日時・draft=false・prerelease=falseと、tag解決先をGitHub APIで個別に照合した。
   `target_commitish`の文字列は固定commitの代用にしていない
 - 対象protocol: `23.2.1`。Javaの要求最低版は`23.0.0`を維持。bootstrapのb6は履歴の比較基線
+- 2026-11-06のfixture取得元: tooling `21a2a9a0aed8b4d9c715da46616aad86f1174b4c`。MIT LICENSEを含むcommitへ固定し直し、使用中4本のbytesとSHA-256が不変であることを確認した
 - fixtureはtoolingの固定sourceから取得。[取得元・digest](../src/test/resources/protocol-fixtures/README.md)を参照。
   配布JARのdownload／実行は今回の検証に含めていない
 
@@ -82,7 +83,7 @@ metadataの`auth.methods`にある5 methodを別表で確認します。上の�
 
 ### Javaが使っていない共有fixture
 
-固定したtooling commit `6447f6e8cbfbeeb9d229990b5c4f6e82a5875666`の
+現在固定しているtooling commit `21a2a9a0aed8b4d9c715da46616aad86f1174b4c`の
 `packages/protocol/test/fixtures/`は10本です。Javaが使う4本は[fixture一覧](../src/test/resources/protocol-fixtures/README.md)のとおりで、
 残る6本の扱いは次のとおりです。未接続のfixtureを、Java独自testが同じcaseまで検証済みとは数えません。
 
@@ -149,8 +150,13 @@ DXの不足は上表の改善先として捕捉し、独立したPhase D gateに
   2026-10-21の実サーバー観測は履歴として保持し、stableのexact JARへの新規live PASSにはしない
 - F1のhello／auth／blockの共有scripted caseの新設、F2の各clientでの採用、F3のlive-auto pulseは未実施。
   接続先・操作範囲がまだ渡されていないため、shared環境には接続していない
-- tooling固定commitにはfixture directoryの`LICENSE`がない。SSOT `2026-10-23-01`③のMIT化の未反映を返す。
-  今回のJavaによるconsumer検証を、移管全体の完了やPhase E／Fの合格にしない
+- 2026-11-06解決済み：tooling `21a2a9a0aed8b4d9c715da46616aad86f1174b4c`にMITのfixture directoryの`LICENSE`が入り、
+  同じfileをJavaのfixture copyと同じdirectoryへ収録した。1,070 bytes、SHA-256は
+  `aa329a0bafc839b95124306141db13a381de45818bf629e983c44ea55ab5a7fb`。
+  使用中4本は新取得元とbyte-for-byte・byte数・SHA-256が一致した（[取得元と計測値](../src/test/resources/protocol-fixtures/README.md)）。
+  Javaによるconsumer検証を、移管全体の完了やPhase E／Fの合格にはしない
+- E1のJava列・Phase DとJava spokeへの着地は、knowledge `8c81c0f115127189de117c3848d1e254f79571c9`で照合済み。
+  local `NOTES_ja.md`の2026-11-04の捕捉もこの着地先へ整理した
 
 ## 確定搬送票
 
@@ -167,7 +173,8 @@ DXの不足は上表の改善先として捕捉し、独立したPhase D gateに
 - 根拠/検証: 上の参照identity、method表、DX表、owner 33 caseのunit/deterministic。正式な新規live evidenceはなし
 - 既に変更した実装/文書: `MinecraftRemote.java`、`Protocol23CapabilitiesTest`、`SharedCompatibilityFixtureTest`、
   `Demo04Events`、fixture READMEとJSON、生成API・作例・互換性文書・追従計画、本資料
-- ナレッジ着地希望: `10-protocol/protocol-inventory_ja.md`のJava列とDX評価へ集約し、`16-java-client/README_ja.md`の現在地を更新。
-  toolingのfixture directoryのMIT LICENSE配置を、既決事項の未反映としてhub NOTESへ捕捉する
-- 捕捉 cleanup: knowledge着地照合後、local `NOTES_ja.md`の2026-11-04行を着地参照へ整理する
+- ナレッジ着地先: knowledge `8c81c0f115127189de117c3848d1e254f79571c9`の`10-protocol/protocol-inventory_ja.md`のJava列・Phase Dと、
+  `16-java-client/README_ja.md`の「stableへの追従とE1（2026-11-04〜06）」へ着地確認済み。
+  fixtureのMIT LICENSE未反映も、tooling `21a2a9a0aed8b4d9c715da46616aad86f1174b4c`への固定とcopyの収録で解決した
+- 捕捉 cleanup: local `NOTES_ja.md`の2026-11-04行を上記knowledge commitの着地参照へ整理済み
 - 着地後の確認戻り先: このrepoのCodex session。搬送時は、本資料を含むpush済みcommitのSHAを添える

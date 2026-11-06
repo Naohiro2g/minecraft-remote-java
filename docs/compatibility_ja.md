@@ -115,9 +115,10 @@ mise Actionの導入・matrixの選択・Gradle cacheのstepもsuccessでした�
 ## Fixtureの取得元
 
 現行ownerは`Naohiro2g/minecraft-remote-tooling`、固定commitは
-`6447f6e8cbfbeeb9d229990b5c4f6e82a5875666`（公開tag `v2321.0.0`）、pathは
+`21a2a9a0aed8b4d9c715da46616aad86f1174b4c`、pathは
 `packages/protocol/test/fixtures/`です。[fixture一覧](../src/test/resources/protocol-fixtures/README.md)に
-4本のdigest、旧Scratch取得履歴、licenseの未反映を記録しています。
+4本のbyte数・digest、旧Scratch取得履歴、同梱したMIT LICENSEのbyte数・digestを記録しています。
+初回stableの公開tag `v2321.0.0` → `6447f6e8cbfbeeb9d229990b5c4f6e82a5875666`は比較用の履歴として保持します。
 Javaのruntime／buildはlocal copyだけを読み、Scratchやtoolingのruntimeへ依存しません。
 
 2026-11-04の`SharedCompatibilityFixtureTest`は、追加したchat/event fixtureの33 caseをTCP peer経由で消費します。
