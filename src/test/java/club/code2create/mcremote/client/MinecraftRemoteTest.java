@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -353,7 +354,7 @@ class MinecraftRemoteTest {
             ServerTarget target = new ServerTarget("127.0.0.1", peer.port());
             store.save(target, "mcrs_keep_protocol");
             assertThrows(
-                    ProtocolException.class,
+                    ProtocolMismatchException.class,
                     () -> MinecraftRemote.builder(target.host(), target.port())
                             .credentialStore(store)
                             .connect());
@@ -436,11 +437,44 @@ class MinecraftRemoteTest {
                         connection.result(hello, helloResult("24.0.0"));
                     }
                 })) {
-            ProtocolException exception = assertThrows(
-                    ProtocolException.class,
+            ProtocolMismatchException exception = assertThrows(
+                    ProtocolMismatchException.class,
                     () -> MinecraftRemote.builder("127.0.0.1", peer.port()).connect());
-            assertTrue(exception.getMessage().contains("server=24.0.0"));
+            assertEquals("protocol_mismatch", exception.reason());
+            assertEquals("24.0.0", exception.serverProtocol());
+            assertEquals(MinecraftRemote.PROTOCOL, exception.clientRequires());
             peer.await();
+        }
+    }
+
+    @Test
+    void keepsServerProtocolMismatchFieldsReadableWhateverTheCode() throws Exception {
+        for (int code : new int[] {-32600, -32000}) {
+            CredentialStore store = CredentialStore.inMemory();
+            try (ScriptedPeer peer = new ScriptedPeer(
+                    server -> {
+                        try (ScriptedPeer.PeerConnection connection = server.accept()) {
+                            ObjectNode hello = connection.readRequest();
+                            connection.error(hello.path("id").longValue(), code,
+                                    "Server protocol 23.2.1 cannot satisfy client protocol 23.0.0",
+                                    Map.of("reason", "protocol_mismatch",
+                                            "server", "23.2.1",
+                                            "client_requires", "23.0.0"));
+                        }
+                    })) {
+                ServerTarget target = new ServerTarget("127.0.0.1", peer.port());
+                store.save(target, "mcrs_keep_on_server_mismatch");
+                RemoteCallException exception = assertThrows(
+                        RemoteCallException.class,
+                        () -> MinecraftRemote.builder(target.host(), target.port())
+                                .credentialStore(store)
+                                .connect());
+                assertEquals(Optional.of("protocol_mismatch"), exception.reason());
+                assertEquals("23.2.1", exception.data().get("server"));
+                assertEquals("23.0.0", exception.data().get("client_requires"));
+                assertEquals("mcrs_keep_on_server_mismatch", store.load(target).orElseThrow());
+                peer.await();
+            }
         }
     }
 

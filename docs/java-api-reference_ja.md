@@ -51,7 +51,8 @@
 | pairingが必要なときに呼ばれるコールバック。 | [`PairingListener`](#type-PairingListener) |
 | 認証が必要ですがpairingListenerが設定されていない状態。 | [`PairingRequiredException`](#type-PairingRequiredException) |
 | paired playerの完全修飾次元、原点相対位置、yaw・pitch。 | [`PlayerPose`](#type-PlayerPose) |
-| 互換性や応答の形がJavaクライアントの受理条件に合わない状態。 | [`ProtocolException`](#type-ProtocolException) |
+| 応答の形がJavaクライアントの受理条件に合わない状態。 | [`ProtocolException`](#type-ProtocolException) |
+| サーバーのprotocolが、クライアントの要求するprotocolを満たさない状態。majorの一致と、サーバーのminorが同じか上であることを要求し、patchは見ません。保存済みtokenは消しません。サーバーが返す不一致は、reason()がprotocol_mismatchのRemoteCallExceptionです。 | [`ProtocolMismatchException`](#type-ProtocolMismatchException) |
 | サーバーがJSON-RPC errorで操作を拒否した状態。reason()で拒否理由を調べます。 | [`RemoteCallException`](#type-RemoteCallException) |
 | TCP接続先のhostとport。CredentialStoreのscopeにも使います。 | [`ServerTarget`](#type-ServerTarget) |
 | 看板の入力・戻り値・面・装飾をまとめる型。 | [`Sign`](#type-Sign) |
@@ -347,10 +348,20 @@ MinecraftRemote.Builder tokenType(TokenType type)
 
 ### `clientIdentity`
 
-pairing画面へ渡すapplication名・版・localeを設定します。
+application名・版・localeを設定します。設定するとhelloでも申告し、pairing画面へも渡します。未設定ならhelloでは申告せず、pairingには既定値を渡します。
 
 ```java
 MinecraftRemote.Builder clientIdentity(ClientIdentity identity)
+```
+
+<a id="api-MinecraftRemote.Builder-buildContext"></a>
+
+### `buildContext`
+
+helloで最初のbuild context（dimensionと原点）を要求します。dimensionは短いIDでもよく、正準の値はbuildContext()で返ります。未設定ならサーバーの既定を使います。
+
+```java
+MinecraftRemote.Builder buildContext(String dimension, int originX, int originY, int originZ)
 ```
 
 <a id="api-MinecraftRemote.Builder-connect"></a>
@@ -887,9 +898,49 @@ record PlayerPose(
 
 ## `ProtocolException`
 
-互換性や応答の形がJavaクライアントの受理条件に合わない状態。
+応答の形がJavaクライアントの受理条件に合わない状態。
 
 [実装](../src/main/java/club/code2create/mcremote/client/ProtocolException.java)
+
+<a id="type-ProtocolMismatchException"></a>
+
+## `ProtocolMismatchException`
+
+サーバーのprotocolが、クライアントの要求するprotocolを満たさない状態。majorの一致と、サーバーのminorが同じか上であることを要求し、patchは見ません。保存済みtokenは消しません。サーバーが返す不一致は、reason()がprotocol_mismatchのRemoteCallExceptionです。
+
+定数: `REASON = protocol_mismatch`。
+
+<a id="api-ProtocolMismatchException-reason"></a>
+
+### `reason`
+
+protocol_mismatchを返します。
+
+```java
+String reason()
+```
+
+<a id="api-ProtocolMismatchException-serverProtocol"></a>
+
+### `serverProtocol`
+
+サーバーがhelloで返したprotocolを返します。
+
+```java
+String serverProtocol()
+```
+
+<a id="api-ProtocolMismatchException-clientRequires"></a>
+
+### `clientRequires`
+
+クライアントがhelloで申告したprotocolを返します。
+
+```java
+String clientRequires()
+```
+
+[実装](../src/main/java/club/code2create/mcremote/client/ProtocolMismatchException.java)
 
 <a id="type-RemoteCallException"></a>
 

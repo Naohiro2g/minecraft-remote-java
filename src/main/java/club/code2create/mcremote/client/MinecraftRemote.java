@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 
 /**
  * A synchronous Java client for the Minecraft Remote Protocol 23.0.0 Phase B slice.
@@ -41,6 +43,11 @@ public final class MinecraftRemote implements AutoCloseable {
     private final PairingListener pairingListener;
     private final TokenType tokenType;
     private final ClientIdentity clientIdentity;
+    private final boolean announceClientIdentity;
+    private final Map<String, Object> requestedBuild;
+    private final String protocol;
+    private final LongSupplier nanoClock;
+    private final Consumer<JsonRpcConnection> connectionObserver;
 
     private JsonRpcConnection connection;
     private HelloResult helloResult;
@@ -56,6 +63,11 @@ public final class MinecraftRemote implements AutoCloseable {
         pairingListener = builder.pairingListener;
         tokenType = builder.tokenType;
         clientIdentity = builder.clientIdentity;
+        announceClientIdentity = builder.clientIdentityConfigured;
+        requestedBuild = builder.requestedBuild;
+        protocol = builder.protocol;
+        nanoClock = builder.nanoClock;
+        connectionObserver = builder.connectionObserver;
     }
 
     public static Builder builder(String host, int port) {
@@ -272,7 +284,7 @@ public final class MinecraftRemote implements AutoCloseable {
     }
 
     private boolean serverHasNewerMinor() throws ProtocolException {
-        ProtocolVersion required = ProtocolVersion.parse(PROTOCOL);
+        ProtocolVersion required = ProtocolVersion.parse(protocol);
         ProtocolVersion server = ProtocolVersion.parse(helloResult.protocol());
         return server.major() == required.major() && server.minor() > required.minor();
     }
@@ -332,9 +344,15 @@ public final class MinecraftRemote implements AutoCloseable {
 
     private HelloResult hello(String token) throws MinecraftRemoteException {
         Map<String, Object> params = new LinkedHashMap<>();
-        params.put("protocol", PROTOCOL);
+        params.put("protocol", protocol);
+        if (announceClientIdentity) {
+            params.put("client", clientIdentityParams());
+        }
         if (token != null && !token.isBlank()) {
             params.put("auth", Map.of("token", token));
+        }
+        if (requestedBuild != null) {
+            params.put("build", requestedBuild);
         }
         JsonNode result = request("hello", params);
         if (!result.isObject()) {
@@ -342,11 +360,10 @@ public final class MinecraftRemote implements AutoCloseable {
         }
 
         String serverProtocol = requiredText(result, "protocol", "hello result");
-        ProtocolVersion required = ProtocolVersion.parse(PROTOCOL);
+        ProtocolVersion required = ProtocolVersion.parse(protocol);
         ProtocolVersion advertised = ProtocolVersion.parse(serverProtocol);
         if (!advertised.satisfies(required)) {
-            throw new ProtocolException(
-                    "incompatible protocol: server=" + serverProtocol + ", client=" + PROTOCOL);
+            throw new ProtocolMismatchException(serverProtocol, protocol);
         }
 
         String minecraftVersion = requiredText(result, "mc_version", "hello result");
@@ -383,13 +400,9 @@ public final class MinecraftRemote implements AutoCloseable {
     }
 
     private String pair() throws MinecraftRemoteException {
-        Map<String, Object> client = new LinkedHashMap<>();
-        client.put("name", clientIdentity.name());
-        client.put("version", clientIdentity.version());
-        client.put("locale", clientIdentity.locale());
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("token_type", tokenType.wireName());
-        params.put("client", client);
+        params.put("client", clientIdentityParams());
 
         JsonNode begin = request("auth.pairBegin", params);
         if (!begin.isObject()) {
@@ -402,7 +415,7 @@ public final class MinecraftRemote implements AutoCloseable {
                 pairCode, displayPairCode(pairCode), Duration.ofSeconds(expiresSeconds));
         pairingListener.pairingRequired(challenge);
 
-        long deadline = System.nanoTime() + challenge.expiresIn().toNanos();
+        long deadline = nanoClock.getAsLong() + challenge.expiresIn().toNanos();
         while (true) {
             JsonNode poll = request("auth.pairPoll", Map.of("pairing_id", pairingId));
             if (!poll.isObject()) {
@@ -415,7 +428,7 @@ public final class MinecraftRemote implements AutoCloseable {
             if (!"pending".equals(status)) {
                 throw new ProtocolException("unknown auth.pairPoll status: " + status);
             }
-            long remaining = deadline - System.nanoTime();
+            long remaining = deadline - nanoClock.getAsLong();
             if (remaining <= 0) {
                 throw new RemoteCallException(
                         -32000, "pairing code expired", Map.of("reason", "pair_expired"));
@@ -424,13 +437,23 @@ public final class MinecraftRemote implements AutoCloseable {
         }
     }
 
-    private JsonNode request(String method, Object params) throws MinecraftRemoteException {
+    private Map<String, Object> clientIdentityParams() {
+        Map<String, Object> client = new LinkedHashMap<>();
+        client.put("name", clientIdentity.name());
+        client.put("version", clientIdentity.version());
+        client.put("locale", clientIdentity.locale());
+        return client;
+    }
+
+    /** Sends one already-encoded request on the current connection (package-private for tests). */
+    JsonNode request(String method, Object params) throws MinecraftRemoteException {
         ensureOpen();
         return connection.request(method, params);
     }
 
     private void openConnection() throws TransportException {
         connection = new JsonRpcConnection(target, connectTimeout, readTimeout);
+        connectionObserver.accept(connection);
     }
 
     private void reconnect() throws TransportException {
@@ -1051,6 +1074,11 @@ public final class MinecraftRemote implements AutoCloseable {
         private PairingListener pairingListener;
         private TokenType tokenType = TokenType.SESSION;
         private ClientIdentity clientIdentity = ClientIdentity.defaultIdentity();
+        private boolean clientIdentityConfigured;
+        private Map<String, Object> requestedBuild;
+        private String protocol = PROTOCOL;
+        private LongSupplier nanoClock = System::nanoTime;
+        private Consumer<JsonRpcConnection> connectionObserver = connection -> {};
 
         private Builder(ServerTarget target) {
             this.target = target;
@@ -1088,6 +1116,45 @@ public final class MinecraftRemote implements AutoCloseable {
 
         public Builder clientIdentity(ClientIdentity identity) {
             clientIdentity = Objects.requireNonNull(identity, "identity");
+            clientIdentityConfigured = true;
+            return this;
+        }
+
+        /**
+         * Requests the initial build context in {@code hello}. The dimension may be a short or
+         * fully qualified ID; {@link MinecraftRemote#buildContext()} returns the server-canonical
+         * value. Without this call the server default applies.
+         */
+        public Builder buildContext(String dimension, int originX, int originY, int originZ) {
+            Objects.requireNonNull(dimension, "dimension");
+            if (dimension.isBlank()) {
+                throw new IllegalArgumentException("dimension must not be blank");
+            }
+            Map<String, Object> build = new LinkedHashMap<>();
+            build.put("dimension", dimension);
+            build.put("origin", List.of(originX, originY, originZ));
+            requestedBuild = build;
+            return this;
+        }
+
+        /** Overrides the declared protocol; package-private so shared fixtures can use their value. */
+        Builder protocol(String value) {
+            try {
+                ProtocolVersion.parse(Objects.requireNonNull(value, "protocol"));
+            } catch (ProtocolException exception) {
+                throw new IllegalArgumentException(exception.getMessage(), exception);
+            }
+            protocol = value;
+            return this;
+        }
+
+        Builder nanoClock(LongSupplier clock) {
+            nanoClock = Objects.requireNonNull(clock, "clock");
+            return this;
+        }
+
+        Builder connectionObserver(Consumer<JsonRpcConnection> observer) {
+            connectionObserver = Objects.requireNonNull(observer, "observer");
             return this;
         }
 
