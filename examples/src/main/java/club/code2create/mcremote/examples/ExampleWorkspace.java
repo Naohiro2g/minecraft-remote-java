@@ -1,5 +1,6 @@
 package club.code2create.mcremote.examples;
 
+import club.code2create.mcremote.client.BlockPosition;
 import club.code2create.mcremote.client.BuildContext;
 import club.code2create.mcremote.client.MinecraftRemote;
 import club.code2create.mcremote.client.MinecraftRemoteException;
@@ -14,12 +15,18 @@ final class ExampleWorkspace {
     private ExampleWorkspace() {}
 
     static BuildContext select(MinecraftRemote minecraft) throws MinecraftRemoteException {
-        int x = coordinate("MCREMOTE_ORIGIN_X", DEFAULT_ORIGIN_X);
-        int y = coordinate("MCREMOTE_ORIGIN_Y", DEFAULT_ORIGIN_Y);
-        int z = coordinate("MCREMOTE_ORIGIN_Z", DEFAULT_ORIGIN_Z);
-        BuildContext context = minecraft.setOrigin(x, y, z);
+        BlockPosition origin = requestedOrigin();
+        BuildContext context = minecraft.setOrigin(origin.x(), origin.y(), origin.z());
         System.out.println("example workspace origin: " + context.origin());
         return context;
+    }
+
+    /** The absolute origin chosen by MCREMOTE_ORIGIN_X/Y/Z, or (300, 0, 300). */
+    static BlockPosition requestedOrigin() {
+        return new BlockPosition(
+                coordinate("MCREMOTE_ORIGIN_X", DEFAULT_ORIGIN_X),
+                coordinate("MCREMOTE_ORIGIN_Y", DEFAULT_ORIGIN_Y),
+                coordinate("MCREMOTE_ORIGIN_Z", DEFAULT_ORIGIN_Z));
     }
 
     private static int coordinate(String name, int fallback) {

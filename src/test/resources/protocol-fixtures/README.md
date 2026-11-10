@@ -2,13 +2,16 @@
 
 通常のbuild／CIはこのdirectoryのvendor copyを読み、networkから取得しません。
 2026-11-04に取得元をtoolingへ切り替え、2026-11-06にMITのLICENSEを含むcommitへ固定し直しました。
+2026-11-10に、F1の6本とそのschema、F1が参照する`block-value-v22.json`を加え、directory全体の取得元を
+F1をmergeしたcommitへ固定し直しました。
 
 - repository: `Naohiro2g/minecraft-remote-tooling`
-- source commit: `21a2a9a0aed8b4d9c715da46616aad86f1174b4c`
+- source commit: `8264c3881bb4128c14cda6d122641ebcfa67d9c5`
 - source directory: `packages/protocol/test/fixtures/`
-- [固定したownerの案内](https://github.com/Naohiro2g/minecraft-remote-tooling/blob/21a2a9a0aed8b4d9c715da46616aad86f1174b4c/packages/protocol/README.md)
-- 初回stableの比較用参照（履歴）: 公開tag `v2321.0.0` → `6447f6e8cbfbeeb9d229990b5c4f6e82a5875666`。
-  現在のfixture取得元は上記のLICENSE追加後のcommitです
+- [固定したownerの案内](https://github.com/Naohiro2g/minecraft-remote-tooling/blob/8264c3881bb4128c14cda6d122641ebcfa67d9c5/packages/protocol/README.md)
+- 前の取得元（履歴）: `21a2a9a0aed8b4d9c715da46616aad86f1174b4c`。下の表の既存4本とLICENSEは、
+  `8264c38`でもbytesが同じです（2026-11-10にbyte-for-byteで比較）
+- 初回stableの比較用参照（履歴）: 公開tag `v2321.0.0` → `6447f6e8cbfbeeb9d229990b5c4f6e82a5875666`
 
 | file | bytes | SHA-256 | Javaでの消費 |
 | --- | --- | --- | --- |
@@ -16,18 +19,25 @@
 | `sign-v23.json` | 5,043 | `7ffb63c264602cba56117eefff1f9604b955df04c5cc655e877772b8ff7cd30e` | 同上 |
 | `spawn-v22.json` | 682 | `1120e6c8d41b05b65c916fa96f496b02884123ec7ef59b0a226eea48bebf3abd` | `Protocol23CapabilitiesTest` |
 | `chat-event-compat-v23.2.1.json` | 32,384 | `eead244a7340c315cb63e1e77ede0fe9cf48162c06fedbeef36d941950d5000d` | `SharedCompatibilityFixtureTest`：chat 7、event 22、stateful 4 case |
+| `client-bootstrap-framing-v23.2.1.json` | 15,131 | `be063b519b5d653a4bb4ec3da6f67e5d481a28dcf5913961c848b2b909d4b26d` | `ClientBootstrapFixtureTest`：7 case |
+| `client-bootstrap-hello-v23.2.1.json` | 18,734 | `0164639f946c58f1a2548334d6ff7032a50ec57dd797a328094eff7f104dc0a1` | 同上：9 case |
+| `client-bootstrap-pairing-v23.2.1.json` | 19,322 | `cdb2209d8a1d46fede158db50c3672936dad152c7fd2bec7ef5a068ed57a1fe1` | 同上：7 case |
+| `client-bootstrap-blocks-v23.2.1.json` | 45,945 | `664babdf3131a74e4aaf6d9e5dfb5e4cfc6e197df0a0d48142688820f1be813d` | 同上：12 case |
+| `client-bootstrap-errors-v23.2.1.json` | 9,179 | `c458d3ffbae846cfb33c032eba14d8f0005c6a1fbe871290b53fcfec8ec41aaa` | 同上：3 case |
+| `client-bootstrap-close-v23.2.1.json` | 14,535 | `44e9a4276bbd204671db0385f4f801cd3b152d0853ac943876ede73db6bd8dd1` | 同上：6 case |
+| `client-bootstrap-v1.schema.json` | 9,908 | `026d15c2d09f955ba47d6abd0c06a5af3e49ae41e4cc94441b4f0d9829b1d26f` | 同上：F1の6本の形を、このschemaの定数・列挙から確かめる |
+| `block-value-v22.json` | 3,217 | `e8e108d59c40751d67a432543d75cb4bf9146ef9781721012085c80545b854f3` | 同上：blocksの`value_refs`（`/catalog/block`）を解決し、期待値の`result`がcatalogの範囲にあることを確かめる |
 
-2026-11-06に4本すべてを新取得元から取り直してlocal copyとbyte-for-byteで比較し、byte数とSHA-256も一致しました。
-fixture本体は変更していません。`Protocol23CapabilitiesTest`も引き続き同じdigestを検証します。
-新旧toolingのfixture 10本すべてについて、GitHub APIのGit blob SHAとbyte数が不変であることも確認しました。
-Javaが使わない6本の理由・予定は[E1確認資料](../../../../docs/polyglot-e1_ja.md#javaが使っていない共有fixture)にあります。
+各testは、使うfileのSHA-256を検証します。fixture本体は変更していません。
+F1の6本の読み方、Java側で直した振る舞い、決めずに残したことは[F3の記録](../../../../docs/polyglot-f3_ja.md)にあります。
+Javaが使わない共有fixtureの理由・予定は[E1確認資料](../../../../docs/polyglot-e1_ja.md#javaが使っていない共有fixture)にあります
+（`block-value-v22.json`は、上のとおりF1の参照の範囲で使うようになりました）。
 
 既存3本は移管前のScratch owner `df9264ec355dd722a848df46e96d4b0fc9340ca2` の
 `mc-remote/protocol/test/fixtures/`ともbyte一致しました。b6比較基線は取得履歴として保持します。
 protocol 22のparticle shapeもprotocol 23へ引き継がれており、履歴のfile名を改名しません。
 
-fixture内の`knowledge_contract`は成立時点の参照です。今回の着地確認で読んだknowledgeは
-`8c81c0f115127189de117c3848d1e254f79571c9`で、現行contractの正本はknowledgeの`10-protocol`です。
+fixture内の`knowledge_contract`は成立時点の参照です。現行contractの正本はknowledgeの`10-protocol`です。
 
 ## LICENSE
 

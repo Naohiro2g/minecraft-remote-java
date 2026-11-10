@@ -144,5 +144,6 @@ try {
 ```
 
 `RemoteCallException`はサーバーが返した拒否です。`TransportException`は接続・通信の失敗、
-`ProtocolException`は互換判定や応答の形の不一致です。いずれも`MinecraftRemoteException`を継承します。
+`ProtocolMismatchException`はサーバーのprotocolがクライアントの要求を満たさないこと、
+`ProtocolException`は応答の形の不一致です。いずれも`MinecraftRemoteException`を継承します。
 通信失敗時には、world操作が既に実行されたか分からない場合があります。書き込みを自動で繰り返さないでください。

@@ -3,6 +3,7 @@ package club.code2create.mcremote.examples;
 import club.code2create.mcremote.client.CredentialStore;
 import club.code2create.mcremote.client.MinecraftRemote;
 import club.code2create.mcremote.client.MinecraftRemoteException;
+import club.code2create.mcremote.client.PairingChallenge;
 import club.code2create.mcremote.client.RemoteCallException;
 import club.code2create.mcremote.client.ServerTarget;
 import java.util.Locale;
@@ -82,7 +83,7 @@ public final class Main {
         }
     }
 
-    private static ServerTarget targetFromEnvironment() {
+    static ServerTarget targetFromEnvironment() {
         String host = System.getenv().getOrDefault("MCREMOTE_HOST", DEFAULT_HOST);
         int port = parsePort(System.getenv("MCREMOTE_PORT"));
         return new ServerTarget(host, port);
@@ -94,17 +95,19 @@ public final class Main {
                 "Minecraft Remoteへ接続しています: %s:%d%n", target.host(), target.port());
         return MinecraftRemote.builder(target.host(), target.port())
                 .credentialStore(credentialStore)
-                .pairingListener(challenge -> {
-                    System.out.println();
-                    System.out.println("ペアリングが必要です。Minecraftで次を実行してください:");
-                    System.out.println();
-                    System.out.println("    " + challenge.command());
-                    System.out.println();
-                    System.out.printf(
-                            "有効期限: %d秒。ペアリング完了を待っています...%n",
-                            challenge.expiresIn().toSeconds());
-                })
+                .pairingListener(Main::printPairingCommand)
                 .connect();
+    }
+
+    static void printPairingCommand(PairingChallenge challenge) {
+        System.out.println();
+        System.out.println("ペアリングが必要です。Minecraftで次を実行してください:");
+        System.out.println();
+        System.out.println("    " + challenge.command());
+        System.out.println();
+        System.out.printf(
+                "有効期限: %d秒。ペアリング完了を待っています...%n",
+                challenge.expiresIn().toSeconds());
     }
 
     private static int parsePort(String value) {

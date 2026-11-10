@@ -55,3 +55,12 @@ tasks.register<JavaExec>("demo") {
     standardInput = System.`in`
     javaLauncher.set(javaToolchains.launcherFor(java.toolchain))
 }
+
+tasks.register<JavaExec>("livePulse") {
+    group = "verification"
+    description = "Runs hello, world.setBlock, and world.getBlock once against a real McRemote."
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("club.code2create.mcremote.examples.LivePulse")
+    standardInput = System.`in`
+    javaLauncher.set(javaToolchains.launcherFor(java.toolchain))
+}
