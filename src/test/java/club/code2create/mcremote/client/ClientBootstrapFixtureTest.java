@@ -54,7 +54,7 @@ class ClientBootstrapFixtureTest {
         DIGESTS.put("client-bootstrap-framing-v23.2.1.json",
                 "be063b519b5d653a4bb4ec3da6f67e5d481a28dcf5913961c848b2b909d4b26d");
         DIGESTS.put("client-bootstrap-hello-v23.2.1.json",
-                "0164639f946c58f1a2548334d6ff7032a50ec57dd797a328094eff7f104dc0a1");
+                "78297f05eb4352b0dabffab3242e933c1e68cb192bbb6d242019c7956c809d57");
         DIGESTS.put("client-bootstrap-pairing-v23.2.1.json",
                 "cdb2209d8a1d46fede158db50c3672936dad152c7fd2bec7ef5a068ed57a1fe1");
         DIGESTS.put("client-bootstrap-blocks-v23.2.1.json",
@@ -67,7 +67,7 @@ class ClientBootstrapFixtureTest {
 
     private static final String SCHEMA = "client-bootstrap-v1.schema.json";
     private static final String SCHEMA_DIGEST =
-            "026d15c2d09f955ba47d6abd0c06a5af3e49ae41e4cc94441b4f0d9829b1d26f";
+            "e848bd3a61d4c0a737f7f3a8963baf2fcbb83247486f3d8aa69f022bb55a7ede";
     private static final String BLOCK_VALUES = "block-value-v22.json";
     private static final String BLOCK_VALUES_DIGEST =
             "e8e108d59c40751d67a432543d75cb4bf9146ef9781721012085c80545b854f3";
@@ -105,8 +105,8 @@ class ClientBootstrapFixtureTest {
             assertEquals(fieldNames(properties), fieldNames(fixture), name);
             assertEquals(properties.path("schema").path("const"), fixture.path("schema"), name);
             assertEquals(properties.path("protocol").path("const"), fixture.path("protocol"), name);
-            assertEquals(properties.path("knowledge_contract").path("properties").path("commit")
-                    .path("const"), fixture.path("knowledge_contract").path("commit"), name);
+            assertTrue(allowedValues(properties.path("knowledge_contract").path("properties")
+                    .path("commit")).contains(fixture.path("knowledge_contract").path("commit")), name);
             assertTrue(suites.contains(fixture.path("suite").asText()), name);
             for (JsonNode testCase : fixture.path("cases")) {
                 String id = testCase.path("id").asText();
@@ -123,7 +123,7 @@ class ClientBootstrapFixtureTest {
                 total++;
             }
         }
-        assertEquals(44, total);
+        assertEquals(45, total);
     }
 
     @Test
@@ -669,6 +669,17 @@ class ClientBootstrapFixtureTest {
         Set<String> names = new HashSet<>();
         node.fieldNames().forEachRemaining(names::add);
         return names;
+    }
+
+    /** Returns the values a schema property admits through {@code const} or {@code enum}. */
+    private static List<JsonNode> allowedValues(JsonNode property) {
+        List<JsonNode> values = new ArrayList<>();
+        if (property.has("const")) {
+            values.add(property.get("const"));
+        }
+        property.path("enum").forEach(values::add);
+        assertFalse(values.isEmpty(), "schema property admits no value");
+        return values;
     }
 
     private static Set<String> textSet(JsonNode array) {

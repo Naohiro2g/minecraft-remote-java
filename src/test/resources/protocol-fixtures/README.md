@@ -4,12 +4,16 @@
 2026-11-04に取得元をtoolingへ切り替え、2026-11-06にMITのLICENSEを含むcommitへ固定し直しました。
 2026-11-10に、F1の6本とそのschema、F1が参照する`block-value-v22.json`を加え、directory全体の取得元を
 F1をmergeしたcommitへ固定し直しました。
+2026-11-11に、F1の追補（tooling PR 5）をmergeしたcommitへ固定し直しました。
 
 - repository: `Naohiro2g/minecraft-remote-tooling`
-- source commit: `8264c3881bb4128c14cda6d122641ebcfa67d9c5`
+- source commit: `ea7838a78bf78947c7dde5876f6cc93b43f7e3cc`
 - source directory: `packages/protocol/test/fixtures/`
-- [固定したownerの案内](https://github.com/Naohiro2g/minecraft-remote-tooling/blob/8264c3881bb4128c14cda6d122641ebcfa67d9c5/packages/protocol/README.md)
-- 前の取得元（履歴）: `21a2a9a0aed8b4d9c715da46616aad86f1174b4c`。下の表の既存4本とLICENSEは、
+- [固定したownerの案内](https://github.com/Naohiro2g/minecraft-remote-tooling/blob/ea7838a78bf78947c7dde5876f6cc93b43f7e3cc/packages/protocol/README.md)
+- 前の取得元（履歴）: `8264c3881bb4128c14cda6d122641ebcfa67d9c5`。`ea7838a`で変わったcopyは
+  `client-bootstrap-hello-v23.2.1.json`と`client-bootstrap-v1.schema.json`の2本です。ほかの10本とLICENSEは
+  blobが同じです（2026-11-11にGitHubのtreeと比較）
+- その前の取得元（履歴）: `21a2a9a0aed8b4d9c715da46616aad86f1174b4c`。下の表の既存4本とLICENSEは、
   `8264c38`でもbytesが同じです（2026-11-10にbyte-for-byteで比較）
 - 初回stableの比較用参照（履歴）: 公開tag `v2321.0.0` → `6447f6e8cbfbeeb9d229990b5c4f6e82a5875666`
 
@@ -20,12 +24,12 @@ F1をmergeしたcommitへ固定し直しました。
 | `spawn-v22.json` | 682 | `1120e6c8d41b05b65c916fa96f496b02884123ec7ef59b0a226eea48bebf3abd` | `Protocol23CapabilitiesTest` |
 | `chat-event-compat-v23.2.1.json` | 32,384 | `eead244a7340c315cb63e1e77ede0fe9cf48162c06fedbeef36d941950d5000d` | `SharedCompatibilityFixtureTest`：chat 7、event 22、stateful 4 case |
 | `client-bootstrap-framing-v23.2.1.json` | 15,131 | `be063b519b5d653a4bb4ec3da6f67e5d481a28dcf5913961c848b2b909d4b26d` | `ClientBootstrapFixtureTest`：7 case |
-| `client-bootstrap-hello-v23.2.1.json` | 18,734 | `0164639f946c58f1a2548334d6ff7032a50ec57dd797a328094eff7f104dc0a1` | 同上：9 case |
+| `client-bootstrap-hello-v23.2.1.json` | 20,913 | `78297f05eb4352b0dabffab3242e933c1e68cb192bbb6d242019c7956c809d57` | 同上：10 case |
 | `client-bootstrap-pairing-v23.2.1.json` | 19,322 | `cdb2209d8a1d46fede158db50c3672936dad152c7fd2bec7ef5a068ed57a1fe1` | 同上：7 case |
 | `client-bootstrap-blocks-v23.2.1.json` | 45,945 | `664babdf3131a74e4aaf6d9e5dfb5e4cfc6e197df0a0d48142688820f1be813d` | 同上：12 case |
 | `client-bootstrap-errors-v23.2.1.json` | 9,179 | `c458d3ffbae846cfb33c032eba14d8f0005c6a1fbe871290b53fcfec8ec41aaa` | 同上：3 case |
 | `client-bootstrap-close-v23.2.1.json` | 14,535 | `44e9a4276bbd204671db0385f4f801cd3b152d0853ac943876ede73db6bd8dd1` | 同上：6 case |
-| `client-bootstrap-v1.schema.json` | 9,908 | `026d15c2d09f955ba47d6abd0c06a5af3e49ae41e4cc94441b4f0d9829b1d26f` | 同上：F1の6本の形を、このschemaの定数・列挙から確かめる |
+| `client-bootstrap-v1.schema.json` | 9,953 | `e848bd3a61d4c0a737f7f3a8963baf2fcbb83247486f3d8aa69f022bb55a7ede` | 同上：F1の6本の形を、このschemaの定数・列挙から確かめる |
 | `block-value-v22.json` | 3,217 | `e8e108d59c40751d67a432543d75cb4bf9146ef9781721012085c80545b854f3` | 同上：blocksの`value_refs`（`/catalog/block`）を解決し、期待値の`result`がcatalogの範囲にあることを確かめる |
 
 各testは、使うfileのSHA-256を検証します。fixture本体は変更していません。
