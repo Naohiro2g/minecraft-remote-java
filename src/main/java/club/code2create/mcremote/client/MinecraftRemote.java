@@ -28,6 +28,7 @@ public final class MinecraftRemote implements AutoCloseable {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final TypeReference<LinkedHashMap<String, Object>> OBJECT_MAP =
             new TypeReference<>() {};
+    private static final String AUTH_REQUIRED = "auth_required";
     private static final Set<String> AUTH_DISCARD_REASONS = Set.of(
             "auth_required",
             "token_expired",
@@ -301,43 +302,62 @@ public final class MinecraftRemote implements AutoCloseable {
         }
     }
 
+    /**
+     * Connects with the stored token, following the reason-driven flow of wire 6.5.
+     *
+     * <p>A token rejected with an authentication reason is discarded and hello is retried without a
+     * token. Pairing starts only when the server answers {@code auth_required}, at most once per
+     * call. When a later step fails, the earlier token rejection is attached as a suppressed
+     * exception.
+     */
     private void connect() throws MinecraftRemoteException {
         String token = credentialStore.load(target).orElse(null);
-        openConnection();
+        RemoteCallException rejectedToken = null;
+        boolean paired = false;
         try {
-            acceptHello(hello(token));
-            return;
-        } catch (RemoteCallException exception) {
-            Optional<String> reason = exception.reason();
-            if (reason.isEmpty() || !AUTH_DISCARD_REASONS.contains(reason.get())) {
-                close();
-                throw exception;
-            }
-            credentialStore.clear(target);
-            if (pairingListener == null) {
-                close();
-                throw new PairingRequiredException(reason.get());
-            }
-        } catch (MinecraftRemoteException exception) {
-            close();
-            throw exception;
-        }
-
-        try {
-            reconnect();
-            String pairedToken = pair();
-            credentialStore.save(target, pairedToken);
-            reconnect();
-            try {
-                acceptHello(hello(pairedToken));
-            } catch (RemoteCallException exception) {
-                if (exception.reason().filter(AUTH_DISCARD_REASONS::contains).isPresent()) {
-                    credentialStore.clear(target);
+            openConnection();
+            while (true) {
+                try {
+                    acceptHello(hello(token));
+                    return;
+                } catch (RemoteCallException exception) {
+                    String reason = exception.reason().orElse(null);
+                    if (!AUTH_DISCARD_REASONS.contains(reason)) {
+                        throw exception;
+                    }
+                    boolean hadToken = token != null;
+                    if (hadToken) {
+                        credentialStore.clear(target);
+                        token = null;
+                    }
+                    if (paired) {
+                        // One pairing per connection attempt (2026-08-30-03).
+                        throw exception;
+                    }
+                    if (!AUTH_REQUIRED.equals(reason)) {
+                        if (!hadToken) {
+                            throw exception;
+                        }
+                        // Back to hello without a token; only auth_required leads to pairing.
+                        rejectedToken = exception;
+                        reconnect();
+                        continue;
+                    }
+                    if (pairingListener == null) {
+                        throw new PairingRequiredException(reason);
+                    }
+                    reconnect();
+                    token = pair();
+                    credentialStore.save(target, token);
+                    paired = true;
+                    reconnect();
                 }
-                throw exception;
             }
         } catch (MinecraftRemoteException exception) {
             close();
+            if (rejectedToken != null && exception != rejectedToken) {
+                exception.addSuppressed(rejectedToken);
+            }
             throw exception;
         }
     }
@@ -430,8 +450,8 @@ public final class MinecraftRemote implements AutoCloseable {
             }
             long remaining = deadline - nanoClock.getAsLong();
             if (remaining <= 0) {
-                throw new RemoteCallException(
-                        -32000, "pairing code expired", Map.of("reason", "pair_expired"));
+                // The client judged the expiry; it does not imitate the server's error shape.
+                throw new PairingExpiredException(challenge.expiresIn());
             }
             sleep(Duration.ofNanos(Math.min(remaining, pairPollInterval.toNanos())));
         }

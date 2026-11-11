@@ -169,6 +169,9 @@ final class BootstrapFixturePeer implements AutoCloseable {
                     default -> throw new AssertionError("unsupported peer op " + op);
                 }
             }
+            // The case ends here: a connection the client opens afterwards is refused, so a flow
+            // that continues past the scripted dialog fails fast instead of waiting for a reply.
+            server.close();
             finish(null);
             return null;
         } catch (Throwable throwable) {

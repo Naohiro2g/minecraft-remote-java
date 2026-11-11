@@ -56,18 +56,18 @@ class ClientBootstrapFixtureTest {
         DIGESTS.put("client-bootstrap-hello-v23.2.1.json",
                 "78297f05eb4352b0dabffab3242e933c1e68cb192bbb6d242019c7956c809d57");
         DIGESTS.put("client-bootstrap-pairing-v23.2.1.json",
-                "cdb2209d8a1d46fede158db50c3672936dad152c7fd2bec7ef5a068ed57a1fe1");
+                "5864c23ef3f31af6134d36770cab80b569b708b35fd3fdbed69fb6db195e3aeb");
         DIGESTS.put("client-bootstrap-blocks-v23.2.1.json",
                 "664babdf3131a74e4aaf6d9e5dfb5e4cfc6e197df0a0d48142688820f1be813d");
         DIGESTS.put("client-bootstrap-errors-v23.2.1.json",
                 "c458d3ffbae846cfb33c032eba14d8f0005c6a1fbe871290b53fcfec8ec41aaa");
         DIGESTS.put("client-bootstrap-close-v23.2.1.json",
-                "44e9a4276bbd204671db0385f4f801cd3b152d0853ac943876ede73db6bd8dd1");
+                "a030cc72aa0e4f41575cb15610b1e06e941d3eab07157ce47f0eafe744475154");
     }
 
     private static final String SCHEMA = "client-bootstrap-v1.schema.json";
     private static final String SCHEMA_DIGEST =
-            "e848bd3a61d4c0a737f7f3a8963baf2fcbb83247486f3d8aa69f022bb55a7ede";
+            "8c3e4ff6e7b5b0cf438d358578096579dafab699a40df9cd56de7b9513837413";
     private static final String BLOCK_VALUES = "block-value-v22.json";
     private static final String BLOCK_VALUES_DIGEST =
             "e8e108d59c40751d67a432543d75cb4bf9146ef9781721012085c80545b854f3";
@@ -105,8 +105,11 @@ class ClientBootstrapFixtureTest {
             assertEquals(fieldNames(properties), fieldNames(fixture), name);
             assertEquals(properties.path("schema").path("const"), fixture.path("schema"), name);
             assertEquals(properties.path("protocol").path("const"), fixture.path("protocol"), name);
-            assertTrue(allowedValues(properties.path("knowledge_contract").path("properties")
-                    .path("commit")).contains(fixture.path("knowledge_contract").path("commit")), name);
+            JsonNode contract = properties.path("knowledge_contract").path("properties");
+            assertTrue(allowedValues(contract.path("commit"))
+                    .contains(fixture.path("knowledge_contract").path("commit")), name);
+            assertTrue(allowedValues(contract.path("instructions"))
+                    .contains(fixture.path("knowledge_contract").path("instructions")), name);
             assertTrue(suites.contains(fixture.path("suite").asText()), name);
             for (JsonNode testCase : fixture.path("cases")) {
                 String id = testCase.path("id").asText();
@@ -123,7 +126,7 @@ class ClientBootstrapFixtureTest {
                 total++;
             }
         }
-        assertEquals(45, total);
+        assertEquals(48, total);
     }
 
     @Test
@@ -279,7 +282,11 @@ class ClientBootstrapFixtureTest {
                 case "discard_token" -> {
                     Optional<String> token = dialog.store.load(dialog.target());
                     if (value.asBoolean()) {
-                        assertTrue(token.isEmpty(), "token should be discarded");
+                        // The rejected token is gone; a case that pairs afterwards also states the
+                        // newly stored token under "token".
+                        assertNotNull(dialog.initialToken, "no token was stored before the case");
+                        assertFalse(token.filter(dialog.initialToken::equals).isPresent(),
+                                "rejected token should be discarded");
                     } else {
                         assertEquals(Optional.ofNullable(dialog.initialToken), token,
                                 "token should be kept");
@@ -296,6 +303,21 @@ class ClientBootstrapFixtureTest {
                 }
                 case "pending_ids" -> assertJson(value, ids(connection.pendingIds()), key);
                 case "unanswered_ids" -> assertJson(value, ids(connection.unansweredIds()), key);
+                case "local_failures" -> {
+                    // Each id ended as a local failure: never answered, failed by the client
+                    // itself, and not reported as a server error.
+                    List<Long> failed = new ArrayList<>();
+                    for (JsonNode failure : value) {
+                        assertEquals("completion_unknown", failure.path("outcome").asText(), key);
+                        failed.add(failure.path("id").asLong());
+                    }
+                    assertEquals(failed, connection.unansweredIds(), key);
+                    MinecraftRemoteException last = dialog.errors.isEmpty()
+                            ? null : dialog.errors.get(dialog.errors.size() - 1);
+                    assertInstanceOf(TransportException.class, last, key + "; errors=" + dialog.errors);
+                }
+                case "pairing_attempts" -> assertEquals(value.asInt(),
+                        dialog.sent("auth.pairBegin"), key);
                 case "completed_ids" -> assertJson(value, ids(connection.completedIds()), key);
                 case "matched_ids" -> assertJson(value, ids(connection.completedIds().stream()
                         .filter(id -> !"hello".equals(connection.methodOf(id))).toList()), key);
@@ -494,6 +516,19 @@ class ClientBootstrapFixtureTest {
             }
         }
 
+        /** Counts the requests with {@code method} sent over every connection of the dialog. */
+        int sent(String method) {
+            int count = 0;
+            for (JsonRpcConnection each : connections) {
+                for (long id = 1; each.methodOf(id) != null; id++) {
+                    if (method.equals(each.methodOf(id))) {
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+
         JsonRpcConnection lastConnection() {
             return connections.isEmpty() ? null : connections.get(connections.size() - 1);
         }
@@ -523,6 +558,21 @@ class ClientBootstrapFixtureTest {
     }
 
     static Optional<String> reasonOf(MinecraftRemoteException exception) {
+        Optional<String> direct = directReasonOf(exception);
+        if (direct.isPresent()) {
+            return direct;
+        }
+        // F1-AU-07 ends after the rejected token is discarded. The client then tries hello without
+        // a token, which the finished peer refuses; the rejection it acted on stays suppressed.
+        for (Throwable suppressed : exception.getSuppressed()) {
+            if (suppressed instanceof RemoteCallException remoteError) {
+                return remoteError.reason();
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<String> directReasonOf(MinecraftRemoteException exception) {
         if (exception instanceof RemoteCallException remoteError) {
             return remoteError.reason();
         }
@@ -531,6 +581,9 @@ class ClientBootstrapFixtureTest {
         }
         if (exception instanceof ProtocolMismatchException mismatch) {
             return Optional.of(mismatch.reason());
+        }
+        if (exception instanceof PairingExpiredException expired) {
+            return Optional.of(expired.reason());
         }
         return Optional.empty();
     }

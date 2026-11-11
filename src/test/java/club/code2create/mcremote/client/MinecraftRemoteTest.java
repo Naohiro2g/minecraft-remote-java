@@ -2,6 +2,7 @@ package club.code2create.mcremote.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -249,7 +251,7 @@ class MinecraftRemoteTest {
     }
 
     @Test
-    void replacesOnlyTheExpiredTargetCredentialAndPairsOnce() throws Exception {
+    void replacesOnlyTheExpiredTargetCredentialAfterAuthRequiredAndPairsOnce() throws Exception {
         CredentialStore store = CredentialStore.inMemory();
         ServerTarget otherTarget = new ServerTarget("other.example", 25575);
         store.save(otherTarget, "mcrs_other");
@@ -262,6 +264,12 @@ class MinecraftRemoteTest {
                                 "mcrs_expired",
                                 hello.path("params").path("auth").path("token").asText());
                         first.error(hello, -32000, "token expired", "token_expired");
+                    }
+                    try (ScriptedPeer.PeerConnection anonymous = server.accept()) {
+                        ObjectNode hello = anonymous.readRequest();
+                        assertTrue(hello.path("params").path("auth").isMissingNode(),
+                                "hello after the discarded token carries no token");
+                        anonymous.error(hello, -32000, "authentication required", "auth_required");
                     }
                     try (ScriptedPeer.PeerConnection pairing = server.accept()) {
                         ObjectNode begin = pairing.readRequest();
@@ -412,6 +420,38 @@ class MinecraftRemoteTest {
     }
 
     @Test
+    void retriesWithoutTheRejectedTokenBeforeReportingPairingRequired() throws Exception {
+        // 2026-11-11-01 (7): a rejected token leads back to hello without a token, not to pairing.
+        CredentialStore store = CredentialStore.inMemory();
+        try (ScriptedPeer peer = new ScriptedPeer(
+                server -> {
+                    try (ScriptedPeer.PeerConnection first = server.accept()) {
+                        ObjectNode hello = first.readRequest();
+                        first.error(hello, -32000, "token revoked", "token_revoked");
+                    }
+                    try (ScriptedPeer.PeerConnection anonymous = server.accept()) {
+                        ObjectNode hello = anonymous.readRequest();
+                        assertTrue(hello.path("params").path("auth").isMissingNode());
+                        anonymous.error(hello, -32000, "authentication required", "auth_required");
+                    }
+                })) {
+            ServerTarget target = new ServerTarget("127.0.0.1", peer.port());
+            store.save(target, "mcrs_revoked");
+            PairingRequiredException exception = assertThrows(
+                    PairingRequiredException.class,
+                    () -> MinecraftRemote.builder(target.host(), target.port())
+                            .credentialStore(store)
+                            .connect());
+            assertEquals("auth_required", exception.reason());
+            RemoteCallException rejected =
+                    assertInstanceOf(RemoteCallException.class, exception.getSuppressed()[0]);
+            assertEquals("token_revoked", rejected.reason().orElseThrow());
+            assertTrue(store.load(target).isEmpty());
+            peer.await();
+        }
+    }
+
+    @Test
     void reportsPairingRequiredWithoutStartingAnImplicitUi() throws Exception {
         try (ScriptedPeer peer = new ScriptedPeer(
                 server -> {
@@ -443,6 +483,65 @@ class MinecraftRemoteTest {
             assertEquals("protocol_mismatch", exception.reason());
             assertEquals("24.0.0", exception.serverProtocol());
             assertEquals(MinecraftRemote.PROTOCOL, exception.clientRequires());
+            peer.await();
+        }
+    }
+
+    @Test
+    void closesWithoutAnotherRequestWhenHelloAdvertisesAnIncompatibleProtocol() throws Exception {
+        // 2026-11-12-01: a client-side mismatch closes the connection before any further request.
+        try (ScriptedPeer peer = new ScriptedPeer(
+                server -> {
+                    try (ScriptedPeer.PeerConnection connection = server.accept()) {
+                        ObjectNode hello = connection.readRequest();
+                        connection.result(hello, helloResult("24.0.0"));
+                        connection.expectClientClose();
+                    }
+                })) {
+            assertThrows(
+                    ProtocolMismatchException.class,
+                    () -> MinecraftRemote.builder("127.0.0.1", peer.port()).connect());
+            peer.await();
+        }
+    }
+
+    @Test
+    void reportsAClientJudgedPairingExpiryWithoutTheServerErrorShape() throws Exception {
+        // 2026-11-11-01 (8): the client stops polling after expires_in and says it judged so itself.
+        AtomicLong nanos = new AtomicLong();
+        try (ScriptedPeer peer = new ScriptedPeer(
+                server -> {
+                    try (ScriptedPeer.PeerConnection connection = server.accept()) {
+                        ObjectNode hello = connection.readRequest();
+                        connection.error(hello, -32000, "authentication required", "auth_required");
+                    }
+                    try (ScriptedPeer.PeerConnection pairing = server.accept()) {
+                        ObjectNode begin = pairing.readRequest();
+                        pairing.result(
+                                begin,
+                                Map.of(
+                                        "pairing_id", "private-pairing-id",
+                                        "pair_code", "123456",
+                                        "expires_in", 1));
+                        ObjectNode poll = pairing.readRequest();
+                        nanos.addAndGet(Duration.ofMillis(1_001).toNanos());
+                        pairing.result(poll, Map.of("status", "pending"));
+                        pairing.expectClientClose();
+                    }
+                })) {
+            MinecraftRemoteException exception = assertThrows(
+                    MinecraftRemoteException.class,
+                    () -> MinecraftRemote.builder("127.0.0.1", peer.port())
+                            .pairPollInterval(Duration.ofMillis(1))
+                            .pairingListener(challenge -> {})
+                            .nanoClock(nanos::get)
+                            .connect());
+            assertFalse(exception instanceof RemoteCallException,
+                    "a client-judged expiry must not take the server error shape: " + exception);
+            PairingExpiredException expired =
+                    assertInstanceOf(PairingExpiredException.class, exception);
+            assertEquals("pair_expired", expired.reason());
+            assertEquals(Duration.ofSeconds(1), expired.expiresIn());
             peer.await();
         }
     }

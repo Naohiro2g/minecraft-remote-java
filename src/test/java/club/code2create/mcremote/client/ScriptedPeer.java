@@ -105,6 +105,14 @@ final class ScriptedPeer implements AutoCloseable {
             return (ObjectNode) request;
         }
 
+        /** Asserts that the client closes this connection without sending another line. */
+        void expectClientClose() throws IOException {
+            String line = reader.readLine();
+            if (line != null) {
+                throw new AssertionError("client sent another line instead of closing: " + line);
+            }
+        }
+
         void result(ObjectNode request, Object result) throws IOException {
             ObjectNode response = MAPPER.createObjectNode();
             response.put("jsonrpc", "2.0");
