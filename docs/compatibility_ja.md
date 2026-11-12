@@ -22,7 +22,7 @@ Javaの引数・戻り値の型は[生成APIリファレンス](java-api-referen
 | Java API | wire method | 戻り値／役割 |
 | --- | --- | --- |
 | `MinecraftRemote.Builder.connect()` | `hello` | 接続、互換判定、server-authoritativeな`HelloResult` |
-| pairing付き`connect()` | `auth.pairBegin`／`auth.pairPoll` | 認証reasonを受けた場合だけpairingし、token付き`hello`を再試行 |
+| pairing付き`connect()` | `auth.pairBegin`／`auth.pairPoll` | 認証reasonでtokenを捨てたらtokenなしの`hello`へ戻り、`auth_required`を受けた場合だけ一度pairingし、token付き`hello`を再試行 |
 | `helloResult()` | 接続時の`hello` | handshake結果を参照 |
 | `buildContext()` | 接続時の`hello`または`build.setOrigin` | 現在のdimensionとoriginを参照 |
 | `setOrigin(x, y, z)` | `build.setOrigin` | server正準の`BuildContext` |

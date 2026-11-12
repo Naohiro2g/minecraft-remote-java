@@ -145,5 +145,8 @@ try {
 
 `RemoteCallException`はサーバーが返した拒否です。`TransportException`は接続・通信の失敗、
 `ProtocolMismatchException`はサーバーのprotocolがクライアントの要求を満たさないこと、
-`ProtocolException`は応答の形の不一致です。いずれも`MinecraftRemoteException`を継承します。
+`ProtocolException`は応答の形の不一致です。`PairingRequiredException`は`pairingListener`なしで
+`auth_required`を受けたこと、`PairingExpiredException`はpairingコードの期限が切れたとクライアントが判断したことです
+（サーバーが言った期限切れは、`reason()`が`pair_expired`の`RemoteCallException`です）。
+いずれも`MinecraftRemoteException`を継承します。
 通信失敗時には、world操作が既に実行されたか分からない場合があります。書き込みを自動で繰り返さないでください。

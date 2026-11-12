@@ -48,8 +48,9 @@
 | 飛翔体が当たったplayer・entity・blockの型。 | [`MinecraftEvent.ProjectileTarget`](#type-MinecraftEvent.ProjectileTarget) |
 | 接続・通信・サーバーの拒否に共通するchecked exception。 | [`MinecraftRemoteException`](#type-MinecraftRemoteException) |
 | ゲーム内でpairingを承認するためのコードと有効期限。 | [`PairingChallenge`](#type-PairingChallenge) |
+| pairingコードがexpires_inを過ぎたとクライアントが判断し、pollをやめた状態。サーバーのpair_expiredと同じ意味（時間内に承認されなかったか、期限が切れた）です。クライアントの判断なので、JSON-RPCのcodeやdataを持ちません。サーバーが返す期限切れは、reason()がpair_expiredのRemoteCallExceptionです。 | [`PairingExpiredException`](#type-PairingExpiredException) |
 | pairingが必要なときに呼ばれるコールバック。 | [`PairingListener`](#type-PairingListener) |
-| 認証が必要ですがpairingListenerが設定されていない状態。 | [`PairingRequiredException`](#type-PairingRequiredException) |
+| サーバーがauth_requiredを返しましたが、pairingListenerが設定されていない状態。認証reasonで捨てたtokenがあれば、そのRemoteCallExceptionをgetSuppressed()で読めます。 | [`PairingRequiredException`](#type-PairingRequiredException) |
 | paired playerの完全修飾次元、原点相対位置、yaw・pitch。 | [`PlayerPose`](#type-PlayerPose) |
 | 応答の形がJavaクライアントの受理条件に合わない状態。 | [`ProtocolException`](#type-ProtocolException) |
 | サーバーのprotocolが、クライアントの要求するprotocolを満たさない状態。majorの一致と、サーバーのminorが同じか上であることを要求し、patchは見ません。保存済みtokenは消しません。サーバーが返す不一致は、reason()がprotocol_mismatchのRemoteCallExceptionです。 | [`ProtocolMismatchException`](#type-ProtocolMismatchException) |
@@ -839,6 +840,36 @@ String command()
 
 [実装](../src/main/java/club/code2create/mcremote/client/PairingChallenge.java)
 
+<a id="type-PairingExpiredException"></a>
+
+## `PairingExpiredException`
+
+pairingコードがexpires_inを過ぎたとクライアントが判断し、pollをやめた状態。サーバーのpair_expiredと同じ意味（時間内に承認されなかったか、期限が切れた）です。クライアントの判断なので、JSON-RPCのcodeやdataを持ちません。サーバーが返す期限切れは、reason()がpair_expiredのRemoteCallExceptionです。
+
+定数: `REASON = pair_expired`。
+
+<a id="api-PairingExpiredException-reason"></a>
+
+### `reason`
+
+pair_expiredを返します。
+
+```java
+String reason()
+```
+
+<a id="api-PairingExpiredException-expiresIn"></a>
+
+### `expiresIn`
+
+pairingを始めたときにサーバーが返したexpires_inを返します。
+
+```java
+Duration expiresIn()
+```
+
+[実装](../src/main/java/club/code2create/mcremote/client/PairingExpiredException.java)
+
 <a id="type-PairingListener"></a>
 
 ## `PairingListener`
@@ -861,13 +892,13 @@ void pairingRequired(PairingChallenge challenge)
 
 ## `PairingRequiredException`
 
-認証が必要ですがpairingListenerが設定されていない状態。
+サーバーがauth_requiredを返しましたが、pairingListenerが設定されていない状態。認証reasonで捨てたtokenがあれば、そのRemoteCallExceptionをgetSuppressed()で読めます。
 
 <a id="api-PairingRequiredException-reason"></a>
 
 ### `reason`
 
-pairingが必要になった認証reasonを返します。
+auth_requiredを返します。
 
 ```java
 String reason()
