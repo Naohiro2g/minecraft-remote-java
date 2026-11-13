@@ -48,6 +48,11 @@ final class ScriptedPeer implements AutoCloseable {
         return new PeerConnection(serverSocket.accept());
     }
 
+    /** Stops listening, so the client's next connection attempt is refused. */
+    void closeListener() throws IOException {
+        serverSocket.close();
+    }
+
     void await() throws Exception {
         try {
             future.get(Duration.ofSeconds(5).toMillis(), TimeUnit.MILLISECONDS);
@@ -103,6 +108,11 @@ final class ScriptedPeer implements AutoCloseable {
                 throw new IOException("request was not a JSON object");
             }
             return (ObjectNode) request;
+        }
+
+        /** Closes without answering; the client sees EOF. */
+        void eof() throws IOException {
+            socket.shutdownOutput();
         }
 
         /** Asserts that the client closes this connection without sending another line. */

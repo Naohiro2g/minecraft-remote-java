@@ -54,20 +54,20 @@ class ClientBootstrapFixtureTest {
         DIGESTS.put("client-bootstrap-framing-v23.2.1.json",
                 "be063b519b5d653a4bb4ec3da6f67e5d481a28dcf5913961c848b2b909d4b26d");
         DIGESTS.put("client-bootstrap-hello-v23.2.1.json",
-                "78297f05eb4352b0dabffab3242e933c1e68cb192bbb6d242019c7956c809d57");
+                "caf24ad5382e411ba54172b05d6020fc59fc429dc0251ff28db3908b4189784e");
         DIGESTS.put("client-bootstrap-pairing-v23.2.1.json",
-                "5864c23ef3f31af6134d36770cab80b569b708b35fd3fdbed69fb6db195e3aeb");
+                "19230b310c7482adc740095d5604110937ebaa7803a0fed4c294083a9e63a460");
         DIGESTS.put("client-bootstrap-blocks-v23.2.1.json",
                 "664babdf3131a74e4aaf6d9e5dfb5e4cfc6e197df0a0d48142688820f1be813d");
         DIGESTS.put("client-bootstrap-errors-v23.2.1.json",
                 "c458d3ffbae846cfb33c032eba14d8f0005c6a1fbe871290b53fcfec8ec41aaa");
         DIGESTS.put("client-bootstrap-close-v23.2.1.json",
-                "a030cc72aa0e4f41575cb15610b1e06e941d3eab07157ce47f0eafe744475154");
+                "2abb6f48942e1dc7bc42014ba016c3d08a6632c59445c048b008a4c411ea1e30");
     }
 
     private static final String SCHEMA = "client-bootstrap-v1.schema.json";
     private static final String SCHEMA_DIGEST =
-            "8c3e4ff6e7b5b0cf438d358578096579dafab699a40df9cd56de7b9513837413";
+            "970dd68999edc14a4dcc2b67ab2f712e830b7841b2ec4548fee66af117fd281b";
     private static final String BLOCK_VALUES = "block-value-v22.json";
     private static final String BLOCK_VALUES_DIGEST =
             "e8e108d59c40751d67a432543d75cb4bf9146ef9781721012085c80545b854f3";
@@ -126,7 +126,7 @@ class ClientBootstrapFixtureTest {
                 total++;
             }
         }
-        assertEquals(48, total);
+        assertEquals(54, total);
     }
 
     @Test
@@ -217,6 +217,7 @@ class ClientBootstrapFixtureTest {
             try {
                 drive(steps, raw, peer, clock, dialog);
                 peer.await();
+                dialog.awaitCalls();
                 if (raw) {
                     dialog.awaitRaw();
                 }
@@ -237,15 +238,21 @@ class ClientBootstrapFixtureTest {
                 return;
             }
             JsonNode step = steps.get(turn);
+            // A typed call still running here has no response yet (CL-08 keeps two pending).
+            dialog.settleCalls();
             switch (step.path("op").asText()) {
                 case "connect" -> {
                     if (raw) {
                         dialog.openRaw(peer.port());
                     } else {
-                        JsonNode hello = nextClientMessage(steps, turn);
-                        assertEquals("hello", hello.path("method").asText(),
-                                "typed connections start with hello");
-                        dialog.connectTyped(peer.port(), hello.path("params"), steps, clock);
+                        JsonNode first = nextClientMessage(steps, turn);
+                        // A connection that opens with a poll continues the pairing in progress
+                        // (2026-11-12-05); the client opens it by itself.
+                        if (!"auth.pairPoll".equals(first.path("method").asText())) {
+                            assertEquals("hello", first.path("method").asText(),
+                                    "typed connections start with hello");
+                            dialog.connectTyped(peer.port(), first.path("params"), steps, clock);
+                        }
                     }
                 }
                 case "client_send" -> {
@@ -312,12 +319,22 @@ class ClientBootstrapFixtureTest {
                         failed.add(failure.path("id").asLong());
                     }
                     assertEquals(failed, connection.unansweredIds(), key);
-                    MinecraftRemoteException last = dialog.errors.isEmpty()
-                            ? null : dialog.errors.get(dialog.errors.size() - 1);
+                    MinecraftRemoteException last = dialog.lastError();
                     assertInstanceOf(TransportException.class, last, key + "; errors=" + dialog.errors);
                 }
                 case "pairing_attempts" -> assertEquals(value.asInt(),
                         dialog.sent("auth.pairBegin"), key);
+                case "application_failure" -> {
+                    // The client judged the hello result incompatible and failed by itself; the
+                    // failure is not a server error.
+                    assertKeys(value, "kind", "source");
+                    assertEquals("incompatible_protocol", value.path("kind").asText(), key);
+                    assertEquals("client", value.path("source").asText(), key);
+                    MinecraftRemoteException last = dialog.lastError();
+                    assertInstanceOf(ProtocolMismatchException.class, last,
+                            key + "; errors=" + dialog.errors);
+                    assertFalse(last instanceof RemoteCallException, key);
+                }
                 case "completed_ids" -> assertJson(value, ids(connection.completedIds()), key);
                 case "matched_ids" -> assertJson(value, ids(connection.completedIds().stream()
                         .filter(id -> !"hello".equals(connection.methodOf(id))).toList()), key);
@@ -400,7 +417,9 @@ class ClientBootstrapFixtureTest {
     /** Client-side state and observations for one dialog case. */
     private static final class Dialog implements AutoCloseable {
         final CredentialStore store = CredentialStore.inMemory();
-        final List<MinecraftRemoteException> errors = new ArrayList<>();
+        final List<MinecraftRemoteException> errors =
+                java.util.Collections.synchronizedList(new ArrayList<>());
+        final List<Thread> calls = new ArrayList<>();
         final List<JsonRpcConnection> connections = new ArrayList<>();
         final List<MinecraftRemote> remotes = new ArrayList<>();
         final List<long[]> rawSent = new ArrayList<>();
@@ -410,7 +429,7 @@ class ClientBootstrapFixtureTest {
         MinecraftRemote remote;
         JsonRpcConnection raw;
         HelloResult lastHello;
-        BlockValue lastBlock;
+        volatile BlockValue lastBlock;
         boolean helloAccepted;
         int pairingPrompts;
 
@@ -430,7 +449,10 @@ class ClientBootstrapFixtureTest {
             }
             MinecraftRemote.Builder builder = MinecraftRemote.builder("127.0.0.1", port)
                     .connectTimeout(Duration.ofSeconds(2))
-                    .readTimeout(Duration.ofSeconds(2))
+                    // The wait runs on the fixture clock, which advance_time moves for the pairing
+                    // TTL (AU-02 jumps 120 s right after a response). A short wait would close the
+                    // connection before the reader saw that response; v1 has no receive-idle case.
+                    .responseTimeout(Duration.ofHours(1))
                     .pairPollInterval(Duration.ofMillis(1))
                     .credentialStore(store)
                     .protocol(hello.path("protocol").asText())
@@ -460,8 +482,39 @@ class ClientBootstrapFixtureTest {
             }
         }
 
-        void callTyped(JsonNode message) throws Exception {
+        /**
+         * Starts one typed call on its own thread, so a call whose response never comes does not
+         * stop the dialog. The next client turn first gives it a moment to finish.
+         */
+        void callTyped(JsonNode message) {
             assertNotNull(remote, "no open client for " + message);
+            Thread call = new Thread(() -> runTyped(message), "fixture-call");
+            call.setDaemon(true);
+            calls.add(call);
+            call.start();
+        }
+
+        /** Lets calls that already have their response finish before the next client turn. */
+        void settleCalls() throws InterruptedException {
+            for (Thread call : calls) {
+                call.join(200);
+            }
+        }
+
+        void awaitCalls() throws InterruptedException {
+            for (Thread call : calls) {
+                call.join(5_000);
+                assertFalse(call.isAlive(), "a typed call did not finish");
+            }
+        }
+
+        MinecraftRemoteException lastError() {
+            synchronized (errors) {
+                return errors.isEmpty() ? null : errors.get(errors.size() - 1);
+            }
+        }
+
+        private void runTyped(JsonNode message) {
             String method = message.path("method").asText();
             JsonNode params = message.path("params");
             try {
@@ -510,10 +563,11 @@ class ClientBootstrapFixtureTest {
         void closeCurrent() {
             if (raw != null) {
                 raw.close();
-            } else {
-                assertNotNull(remote, "client_close without an open client");
+            } else if (remote != null) {
                 remote.close();
             }
+            // Without an open client the bootstrap failed and the client closed by itself
+            // (HE-11/12); the peer observes that close.
         }
 
         /** Counts the requests with {@code method} sent over every connection of the dialog. */
@@ -534,17 +588,19 @@ class ClientBootstrapFixtureTest {
         }
 
         String lastReason() {
-            if (errors.isEmpty()) {
+            MinecraftRemoteException last = lastError();
+            if (last == null) {
                 return null;
             }
-            MinecraftRemoteException last = errors.get(errors.size() - 1);
             return reasonOf(last).orElse("<no reason: " + last + ">");
         }
 
         RemoteCallException lastRemoteError() {
-            for (int index = errors.size() - 1; index >= 0; index--) {
-                if (errors.get(index) instanceof RemoteCallException remoteError) {
-                    return remoteError;
+            synchronized (errors) {
+                for (int index = errors.size() - 1; index >= 0; index--) {
+                    if (errors.get(index) instanceof RemoteCallException remoteError) {
+                        return remoteError;
+                    }
                 }
             }
             throw new AssertionError("no remote error; errors=" + errors);

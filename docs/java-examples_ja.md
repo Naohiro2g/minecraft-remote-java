@@ -143,10 +143,45 @@ try {
 }
 ```
 
-`RemoteCallException`はサーバーが返した拒否です。`TransportException`は接続・通信の失敗、
+`RemoteCallException`はサーバーが返した拒否です。`TransportException`は接続・通信の失敗で、
+送ったが完了が分からない`CompletionUnknownException`と、送っていない`NotSentException`に分かれます。
 `ProtocolMismatchException`はサーバーのprotocolがクライアントの要求を満たさないこと、
 `ProtocolException`は応答の形の不一致です。`PairingRequiredException`は`pairingListener`なしで
 `auth_required`を受けたこと、`PairingExpiredException`はpairingコードの期限が切れたとクライアントが判断したことです
 （サーバーが言った期限切れは、`reason()`が`pair_expired`の`RemoteCallException`です）。
 いずれも`MinecraftRemoteException`を継承します。
 通信失敗時には、world操作が既に実行されたか分からない場合があります。書き込みを自動で繰り返さないでください。
+
+## 待ち方とつなぎ直し
+
+応答は、その接続で最後に受信してから15分（`MinecraftRemote.DEFAULT_RESPONSE_TIMEOUT`）まで待ちます。大きな建築の
+途中でも、ほかの応答が届くたびに数え直すので、普通に使っていて時間切れになることはありません。尽きたら接続を回収し、
+応答を待っていた呼び出しは`CompletionUnknownException`になります。長さは`Builder.responseTimeout(...)`と
+`setResponseTimeout(...)`で変えられます。何もしていない間の切断は、TCPのkeepalive（既定で約2.5分）が見つけます。
+
+接続が切れた後の次の呼び出しは、自動でつなぎ直してから送ります。保存したtokenで新しく`hello`し、serverが最後に
+確かめた次元と原点（`buildContext()`）を戻します。pairingが要るときは進めずに`NotSentException`
+（`PAIRING_REQUIRED`）で止まるので、`connect()`からやり直します。
+
+```java
+import club.code2create.mcremote.client.CompletionUnknownException;
+import club.code2create.mcremote.client.NotSentException;
+```
+
+```java
+var minecraft = MinecraftRemote.builder(host, port)
+        .reconnectListener(event -> System.out.println("つなぎ直しました"))
+        .connect();
+try {
+    minecraft.setBlock(0, 0, 0, BlockSpec.of("minecraft:gold_block"));
+} catch (CompletionUnknownException exception) {
+    // 置けたか分からない。必要ならgetBlockで確かめてから、もう一度呼ぶ。
+} catch (NotSentException exception) {
+    // 送っていない。exception.reason()で理由を見る。
+}
+```
+
+前の接続で送ったrequestは再送しません。もう一度呼ぶかはapplicationが決めます。eventは接続ごとに持つので、
+つなぎ直したら`pollEvents(0, ...)`から読み直します（`ReconnectEvent.eventsMayHaveBeenLost()`）。
+自動のつなぎ直しを止めるには`Builder.autoReconnect(false)`を使います。
+同じ`MinecraftRemote`は複数のthreadから呼べます。requestは同じ接続に並び、つなぎ直しは1回にまとまります。

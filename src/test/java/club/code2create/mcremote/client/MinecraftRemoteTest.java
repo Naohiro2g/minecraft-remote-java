@@ -547,6 +547,127 @@ class MinecraftRemoteTest {
     }
 
     @Test
+    void checksThePairingDeadlineAgainBeforeTheNextPoll() throws Exception {
+        // 2026-11-11-01 (8): time can pass while the client waits between polls, so it judges the
+        // expiry again before sending the next poll instead of asking the server.
+        AtomicLong nanos = new AtomicLong();
+        try (ScriptedPeer peer = new ScriptedPeer(
+                server -> {
+                    try (ScriptedPeer.PeerConnection connection = server.accept()) {
+                        ObjectNode hello = connection.readRequest();
+                        connection.error(hello, -32000, "authentication required", "auth_required");
+                    }
+                    try (ScriptedPeer.PeerConnection pairing = server.accept()) {
+                        ObjectNode begin = pairing.readRequest();
+                        pairing.result(
+                                begin,
+                                Map.of(
+                                        "pairing_id", "private-pairing-id",
+                                        "pair_code", "123456",
+                                        "expires_in", 1));
+                        ObjectNode poll = pairing.readRequest();
+                        pairing.result(poll, Map.of("status", "pending"));
+                        // The client is now waiting for the next poll; the deadline passes meanwhile.
+                        Thread.sleep(50);
+                        nanos.addAndGet(Duration.ofMillis(1_001).toNanos());
+                        pairing.expectClientClose();
+                    }
+                })) {
+            MinecraftRemoteException exception = assertThrows(
+                    MinecraftRemoteException.class,
+                    () -> MinecraftRemote.builder("127.0.0.1", peer.port())
+                            .pairPollInterval(Duration.ofMillis(300))
+                            .pairingListener(challenge -> {})
+                            .nanoClock(nanos::get)
+                            .connect());
+            assertInstanceOf(PairingExpiredException.class, exception);
+            peer.await();
+        }
+    }
+
+    @Test
+    void closesTheConnectionAndFailsEveryPendingRequestWhenTheResponseTimesOut() throws Exception {
+        // 2026-11-11-01 (3): after the wait, the connection is collected; it is not used again.
+        List<JsonRpcConnection> connections = new java.util.concurrent.CopyOnWriteArrayList<>();
+        try (ScriptedPeer peer = new ScriptedPeer(
+                server -> {
+                    try (ScriptedPeer.PeerConnection connection = server.accept()) {
+                        ObjectNode hello = connection.readRequest();
+                        connection.result(hello, helloResult("23.0.0"));
+                        ObjectNode getBlock = connection.readRequest();
+                        assertRequest(getBlock, 2, "world.getBlock");
+                        connection.expectClientClose();
+                    }
+                })) {
+            try (MinecraftRemote client = MinecraftRemote.builder("127.0.0.1", peer.port())
+                    .readTimeout(Duration.ofMillis(200))
+                    .connectionObserver(connections::add)
+                    .connect()) {
+                MinecraftRemoteException exception =
+                        assertThrows(MinecraftRemoteException.class, () -> client.getBlock(0, 0, 0));
+                assertInstanceOf(TransportException.class, exception);
+                JsonRpcConnection connection = connections.get(0);
+                assertEquals(JsonRpcConnection.State.CLOSED, connection.state());
+                assertEquals(List.of(), connection.pendingIds());
+                assertEquals(List.of(2L), connection.unansweredIds());
+                peer.await();
+            }
+        }
+    }
+
+    @Test
+    void reconnectsOnTheNextCallAfterThePeerClosedAndRestoresTheConfirmedBuild() throws Exception {
+        // 2026-11-11-01 (5): the next call opens a new connection, starts from hello, and restores
+        // the dimension and origin the server last confirmed.
+        List<JsonRpcConnection> connections = new java.util.concurrent.CopyOnWriteArrayList<>();
+        try (ScriptedPeer peer = new ScriptedPeer(
+                server -> {
+                    try (ScriptedPeer.PeerConnection connection = server.accept()) {
+                        ObjectNode hello = connection.readRequest();
+                        connection.result(hello, helloResult("23.0.0"));
+                        ObjectNode origin = connection.readRequest();
+                        assertRequest(origin, 2, "build.setOrigin");
+                        connection.result(origin, Map.of(
+                                "dimension", "minecraft:overworld", "origin", List.of(8, 0, 9)));
+                    }
+                    try (ScriptedPeer.PeerConnection connection = server.accept()) {
+                        ObjectNode hello = connection.readRequest();
+                        assertRequest(hello, 1, "hello");
+                        assertEquals(Map.of("dimension", "minecraft:overworld",
+                                        "origin", List.of(8, 0, 9)),
+                                new com.fasterxml.jackson.databind.ObjectMapper().convertValue(
+                                        hello.path("params").path("build"), Map.class));
+                        Map<String, Object> result = helloResult("23.0.0");
+                        result.put("origin", List.of(8, 0, 9));
+                        connection.result(hello, result);
+                        ObjectNode getBlock = connection.readRequest();
+                        assertRequest(getBlock, 2, "world.getBlock");
+                        connection.result(getBlock, Map.of(
+                                "block_id", "minecraft:gold_block", "state", Map.of()));
+                    }
+                })) {
+            try (MinecraftRemote client = MinecraftRemote.builder("127.0.0.1", peer.port())
+                    .connectionObserver(connections::add)
+                    .connect()) {
+                client.setOrigin(8, 0, 9);
+                awaitClosed(connections.get(0));
+                assertEquals("minecraft:gold_block", client.getBlock(0, 0, 0).blockId());
+                assertEquals(2, connections.size());
+                assertEquals(new BlockPosition(8, 0, 9), client.buildContext().origin());
+            }
+            peer.await();
+        }
+    }
+
+    /** Gives the client up to a second to notice that the peer closed; does not assert it. */
+    private static void awaitClosed(JsonRpcConnection connection) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
+        while (connection.state() != JsonRpcConnection.State.CLOSED && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+    }
+
+    @Test
     void keepsServerProtocolMismatchFieldsReadableWhateverTheCode() throws Exception {
         for (int code : new int[] {-32600, -32000}) {
             CredentialStore store = CredentialStore.inMemory();
