@@ -22,10 +22,14 @@ Javaの引数・戻り値の型は[生成APIリファレンス](java-api-referen
 | Java API | wire method | 戻り値／役割 |
 | --- | --- | --- |
 | `MinecraftRemote.Builder.connect()` | `hello` | 接続、互換判定、server-authoritativeな`HelloResult` |
-| pairing付き`connect()` | `auth.pairBegin`／`auth.pairPoll` | 認証reasonでtokenを捨てたらtokenなしの`hello`へ戻り、`auth_required`を受けた場合だけ一度pairingし、token付き`hello`を再試行 |
+| pairing付き`connect()` | `auth.pairBegin`／`auth.pairPoll` | 認証reasonでtokenを捨てたらtokenなしの`hello`へ戻り、`auth_required`を受けた場合だけ一度pairingし、token付き`hello`を再試行。承認を待つ間に接続が切れたら、期限内なら新しい接続で同じ`pairing_id`のpollを続ける |
+| 自動のつなぎ直し（`Builder.autoReconnect`、既定で有効） | `hello` | 接続が切れた後の次の呼び出しで、保存したtokenの`hello`から始め、最後に確かめたdimensionとoriginを`build`で戻す。pairingせず、requestを再送しない。`ReconnectListener`で知らせる。失敗は`NotSentException` |
 | `helloResult()` | 接続時の`hello` | handshake結果を参照 |
-| `buildContext()` | 接続時の`hello`または`build.setOrigin` | 現在のdimensionとoriginを参照 |
+| `buildContext()` | `hello`、`build.setDimension`、`build.setOrigin`の成功 | serverが最後に確かめたdimensionとoriginを参照 |
+| `setDimension(dimension)` | `build.setDimension` | server正準の`BuildContext` |
 | `setOrigin(x, y, z)` | `build.setOrigin` | server正準の`BuildContext` |
+| `isConnected()` | — | 接続が開いているか。EOF、socketのerror、keepaliveでの切断、応答の待ち時間の尽きでfalse |
+| `setResponseTimeout(...)` | — | 応答を待つ長さ（最後の受信から数える。既定15分）を変える |
 | `postToChat(message)` | `chat.post` | 同期requestを送り、成功resultが`null`であることを検証 |
 | `setBlock(...)` | `world.setBlock` | 構造化`BlockSpec`で1 blockを更新 |
 | `setBlocks(...)` | `world.setBlocks` | 構造化`BlockSpec`で直方体を更新 |
@@ -38,7 +42,7 @@ Javaの引数・戻り値の型は[生成APIリファレンス](java-api-referen
 | `getSign(...)` | `world.getSign` | 両面4行とwax状態 |
 | `setSign(...)` | `world.setSign` | 一面または両面を置換 |
 | `updateSignLine(...)` | `world.updateSignLine` | 一面の1行を置換 |
-| `close()` | TCP close | 接続を閉じる |
+| `close()` | TCP close | 接続を閉じる。応答待ちは`CompletionUnknownException` |
 
 `events.poll`は`pickaxe_poke`、`chat_posted`、`projectile_hit`をsealed typeへ投影します。
 `world.spawnParticle`はprotocol 23のdata不要形と`force`だけを投影します。

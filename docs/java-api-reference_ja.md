@@ -6,14 +6,15 @@
 
 [最初の実行](../README.md) · [作例](java-examples_ja.md) · [対応範囲と検証](compatibility_ja.md) · [Protocol API一覧](https://mc-remote.com/api/)
 
-同じインスタンスを複数threadから同時に使わないでください。world操作の座標は建築原点から相対、`setOrigin`は絶対座標です。サーバーは操作を権限・範囲・処理上限などで拒否することがあります。
+同じインスタンスを複数threadから呼べます。requestは同じ接続に並び、それぞれの応答を待ちます。world操作の座標は建築原点から相対、`setOrigin`は絶対座標です。サーバーは操作を権限・範囲・処理上限などで拒否することがあります。
 
 ## 用途から探す
 
 | 用途 | Javaの入口 |
 | --- | --- |
 | 接続・pairing・終了 | [builder](#api-MinecraftRemote-builder)、[Builder](#type-MinecraftRemote.Builder)、[close](#api-MinecraftRemote-close) |
-| 建築原点 | [setOrigin](#api-MinecraftRemote-setOrigin)、[buildContext](#api-MinecraftRemote-buildContext) |
+| 待ち方・つなぎ直し | [responseTimeout](#api-MinecraftRemote.Builder-responseTimeout)、[autoReconnect](#api-MinecraftRemote.Builder-autoReconnect)、[reconnectListener](#api-MinecraftRemote.Builder-reconnectListener)、[isConnected](#api-MinecraftRemote-isConnected)、[CompletionUnknownException](#type-CompletionUnknownException)、[NotSentException](#type-NotSentException) |
+| 次元・建築原点 | [setDimension](#api-MinecraftRemote-setDimension)、[setOrigin](#api-MinecraftRemote-setOrigin)、[buildContext](#api-MinecraftRemote-buildContext) |
 | ブロックを置く・読む | [setBlock](#api-MinecraftRemote-setBlock)、[setBlocks](#api-MinecraftRemote-setBlocks)、[getBlock](#api-MinecraftRemote-getBlock) |
 | プレイヤーの位置と向き | [getPlayerPose](#api-MinecraftRemote-getPlayerPose)、[setPlayerPose](#api-MinecraftRemote-setPlayerPose) |
 | 看板・particle | [setSign](#api-MinecraftRemote-setSign)、[getSign](#api-MinecraftRemote-getSign)、[updateSignLine](#api-MinecraftRemote-updateSignLine)、[spawnParticle](#api-MinecraftRemote-spawnParticle) |
@@ -25,8 +26,8 @@
 
 | 用途 | 型 |
 | --- | --- |
-| 接続・ブロック・看板・イベントなどを操作する同期クライアント。 | [`MinecraftRemote`](#type-MinecraftRemote) |
-| 接続前のtimeout・認証・pairingを設定するビルダー。 | [`MinecraftRemote.Builder`](#type-MinecraftRemote.Builder) |
+| 接続・ブロック・看板・イベントなどを操作する同期クライアント。複数のthreadから呼べます。接続が切れた後の次の呼び出しで、自動でつなぎ直します。 | [`MinecraftRemote`](#type-MinecraftRemote) |
+| 接続前のtimeout・認証・pairing・つなぎ直しを設定するビルダー。 | [`MinecraftRemote.Builder`](#type-MinecraftRemote.Builder) |
 | 整数の位置。BuildContextの建築原点は絶対座標、event内のpositionはeventの原点からの相対座標です。 | [`BlockPosition`](#type-BlockPosition) |
 | 設置するブロックIDとstate。stateはMapで指定し、省略したpropertyは既定値になります。 | [`BlockSpec`](#type-BlockSpec) |
 | 読み取ったブロックの完全修飾IDと正準state。ブロックentityの追加データは含みません。 | [`BlockValue`](#type-BlockValue) |
@@ -34,9 +35,11 @@
 | 接続先のblock定義、entityとparticleのID集合、catalogHash。 | [`Catalog`](#type-Catalog) |
 | blockの各state propertyの許容値と既定state。 | [`Catalog.BlockEntry`](#type-Catalog.BlockEntry) |
 | pairing時に表示するapplication名・版・locale。 | [`ClientIdentity`](#type-ClientIdentity) |
+| requestを送ったが、応答の前に接続が閉じたか回収されたため、サーバーで実行されたかが分からない状態。相手のEOF、socketのerror、応答の待ち時間の尽き、keepaliveでの切断、closeが原因です。reasonを持たず、自動で再送しません。もう一度呼ぶかはapplicationが決めます。 | [`CompletionUnknownException`](#type-CompletionUnknownException) |
 | 接続先単位でtokenを扱うSPI。永続化するapplicationは保護された保存先を実装します。 | [`CredentialStore`](#type-CredentialStore) |
 | eventの有限snapshot。throughSequenceが次回cursorで、3つのloss counterは接続epoch内の累積値です。 | [`EventPollResult`](#type-EventPollResult) |
 | サーバーが返した接続情報。省略されたsession、player、serverなどは空のOptionalになります。 | [`HelloResult`](#type-HelloResult) |
+| 何も送っていない間に死んだ接続を見つけるTCP keepaliveの設定。OSがprobeを送り、答えが無ければ接続が閉じて、次の呼び出しでつなぎ直します。idle・interval・probesは、JDKとOSが対応する所（jdk.net.ExtendedSocketOptions）で効き、それ以外ではOSの既定です。既定のDEFAULTは30秒・15秒・8回です。 | [`KeepAlive`](#type-KeepAlive) |
 | ツルハシ・チャット・飛翔体のevent。発生時の次元と原点を保持します。 | [`MinecraftEvent`](#type-MinecraftEvent) |
 | 衝突対象blockの値・位置・任意の面。 | [`MinecraftEvent.BlockTarget`](#type-MinecraftEvent.BlockTarget) |
 | paired playerが投稿したチャットの情報。 | [`MinecraftEvent.ChatPosted`](#type-MinecraftEvent.ChatPosted) |
@@ -47,6 +50,8 @@
 | 飛翔体の衝突位置と対象。 | [`MinecraftEvent.ProjectileHit`](#type-MinecraftEvent.ProjectileHit) |
 | 飛翔体が当たったplayer・entity・blockの型。 | [`MinecraftEvent.ProjectileTarget`](#type-MinecraftEvent.ProjectileTarget) |
 | 接続・通信・サーバーの拒否に共通するchecked exception。 | [`MinecraftRemoteException`](#type-MinecraftRemoteException) |
+| 使える接続を用意できず、requestを送らなかった状態。サーバーはrequestを受け取っていません。reason()で理由を調べます。 | [`NotSentException`](#type-NotSentException) |
+| 送らなかった理由。CONNECTION_FAILEDはreconnectWindowの間につなげなかった、INCOMPATIBLE_PROTOCOLは新しい接続のhelloの版が合わなかった、PAIRING_REQUIREDはauth_requiredだった（つなぎ直しではpairingしません）、HELLO_FAILEDはhelloがほかのerrorだった、DISCONNECTEDは自動のつなぎ直しが無効か、closeされた状態です。 | [`NotSentException.Reason`](#type-NotSentException.Reason) |
 | ゲーム内でpairingを承認するためのコードと有効期限。 | [`PairingChallenge`](#type-PairingChallenge) |
 | pairingコードがexpires_inを過ぎたとクライアントが判断し、pollをやめた状態。サーバーのpair_expiredと同じ意味（時間内に承認されなかったか、期限が切れた）です。クライアントの判断なので、JSON-RPCのcodeやdataを持ちません。サーバーが返す期限切れは、reason()がpair_expiredのRemoteCallExceptionです。 | [`PairingExpiredException`](#type-PairingExpiredException) |
 | pairingが必要なときに呼ばれるコールバック。 | [`PairingListener`](#type-PairingListener) |
@@ -54,6 +59,8 @@
 | paired playerの完全修飾次元、原点相対位置、yaw・pitch。 | [`PlayerPose`](#type-PlayerPose) |
 | 応答の形がJavaクライアントの受理条件に合わない状態。 | [`ProtocolException`](#type-ProtocolException) |
 | サーバーのprotocolが、クライアントの要求するprotocolを満たさない状態。majorの一致と、サーバーのminorが同じか上であることを要求し、patchは見ません。保存済みtokenは消しません。サーバーが返す不一致は、reason()がprotocol_mismatchのRemoteCallExceptionです。 | [`ProtocolMismatchException`](#type-ProtocolMismatchException) |
+| つなぎ直したときに変わったこと。前と後のhelloの結果と、helloで戻した次元と原点を持ちます。eventは接続ごとに持つので、切れていた間のeventは失われたかもしれません。前の接続のevent cursorは使い直さず、0から読み直します。前の接続のrequestは再送していません。 | [`ReconnectEvent`](#type-ReconnectEvent) |
+| つなぎ直したときに呼ばれるコールバック。 | [`ReconnectListener`](#type-ReconnectListener) |
 | サーバーがJSON-RPC errorで操作を拒否した状態。reason()で拒否理由を調べます。 | [`RemoteCallException`](#type-RemoteCallException) |
 | TCP接続先のhostとport。CredentialStoreのscopeにも使います。 | [`ServerTarget`](#type-ServerTarget) |
 | 看板の入力・戻り値・面・装飾をまとめる型。 | [`Sign`](#type-Sign) |
@@ -64,14 +71,14 @@
 | 読み取った1行の文字列・正準色・装飾。 | [`Sign.LineValue`](#type-Sign.LineValue) |
 | 読み取った両面各4行とwax状態。 | [`Sign.Value`](#type-Sign.Value) |
 | 認証tokenの種別。通常はSESSIONを使います。LONG_LIVEDのenum値の存在は、long-lived credentialの一般公開や推奨を意味しません。 | [`TokenType`](#type-TokenType) |
-| 接続・切断・送受信・timeoutの失敗。操作が実行されたか不明な場合があるため自動再実行しません。 | [`TransportException`](#type-TransportException) |
+| 接続・切断・送受信・timeoutの、クライアントが判断した失敗。サーバーのerrorではありません。送ったが完了が分からないものはCompletionUnknownException、送っていないものはNotSentExceptionです。自動で再送しません。 | [`TransportException`](#type-TransportException) |
 | 有限の小数を持つ位置またはベクトル。 | [`Vec3`](#type-Vec3) |
 
 <a id="type-MinecraftRemote"></a>
 
 ## `MinecraftRemote`
 
-接続・ブロック・看板・イベントなどを操作する同期クライアント。
+接続・ブロック・看板・イベントなどを操作する同期クライアント。複数のthreadから呼べます。接続が切れた後の次の呼び出しで、自動でつなぎ直します。
 
 定数: `PROTOCOL = 23.0.0`。
 
@@ -89,7 +96,7 @@ static MinecraftRemote.Builder builder(String host, int port)
 
 ### `helloResult`
 
-接続時にサーバーから受け取った対応版、次元、原点、権限などを読みます。
+今の接続（切れていれば最後の接続）でサーバーから受け取った対応版、次元、原点、権限などを読みます。
 
 ```java
 HelloResult helloResult()
@@ -101,11 +108,53 @@ HelloResult helloResult()
 
 ### `buildContext`
 
-この接続で現在使う次元と建築原点を読みます。追加の通信はしません。
+サーバーが最後に確かめた次元と建築原点を読みます。つなぎ直すときは、この値をhelloで戻します。追加の通信はしません。
 
 ```java
 BuildContext buildContext()
 ```
+
+<a id="api-MinecraftRemote-isConnected"></a>
+
+### `isConnected`
+
+今、接続が開いているかを返します。相手が閉じた、socketが失敗した、keepaliveで相手がいないと分かった、応答の待ち時間が尽きた、のいずれかでfalseになります。次の呼び出しでつなぎ直します。
+
+```java
+boolean isConnected()
+```
+
+<a id="api-MinecraftRemote-responseTimeout"></a>
+
+### `responseTimeout`
+
+応答を待つ長さ（最後の受信から数える）を返します。
+
+```java
+Duration responseTimeout()
+```
+
+<a id="api-MinecraftRemote-setResponseTimeout"></a>
+
+### `setResponseTimeout`
+
+応答を待つ長さを変えます。今の接続とつなぎ直した接続に効き、応答を待っているrequestにもすぐ効きます。
+
+```java
+void setResponseTimeout(Duration timeout)
+```
+
+<a id="api-MinecraftRemote-setDimension"></a>
+
+### `setDimension`
+
+以後の操作の次元を変更し、サーバーが返すBuildContextを返します。原点はそのままです。dimensionは完全修飾IDでも、minecraft:を省いた形でもよく、正準の値が返ります。プレイヤーは移動しません。
+
+```java
+BuildContext setDimension(String dimension) throws MinecraftRemoteException
+```
+
+対応するProtocol API: `build.setDimension`。
 
 <a id="api-MinecraftRemote-setOrigin"></a>
 
@@ -271,7 +320,7 @@ EventPollResult pollEvents(EventPollResult previous, int maxEvents) throws Minec
 
 ### `close`
 
-TCP接続を閉じます。try-with-resourcesで呼べます。繰り返し閉じても構いません。
+TCP接続を閉じます。応答を待っているrequestはCompletionUnknownExceptionになり、つなぎ直しも止まります。try-with-resourcesで呼べます。繰り返し閉じても構いません。
 
 ```java
 void close()
@@ -283,7 +332,7 @@ void close()
 
 ## `MinecraftRemote.Builder`
 
-接続前のtimeout・認証・pairingを設定するビルダー。
+接続前のtimeout・認証・pairing・つなぎ直しを設定するビルダー。
 
 <a id="api-MinecraftRemote.Builder-connectTimeout"></a>
 
@@ -295,11 +344,21 @@ TCP接続のtimeoutを設定します。既定は10秒です。
 MinecraftRemote.Builder connectTimeout(Duration timeout)
 ```
 
+<a id="api-MinecraftRemote.Builder-responseTimeout"></a>
+
+### `responseTimeout`
+
+応答を待つ長さを設定します。既定は15分（DEFAULT_RESPONSE_TIMEOUT）です。requestを送った時、またはその接続で最後に受信した時から数え、ほかの応答が届くたびに数え直します。尽きたら接続を回収し、応答を待っているrequestはすべてCompletionUnknownExceptionになります。
+
+```java
+MinecraftRemote.Builder responseTimeout(Duration timeout)
+```
+
 <a id="api-MinecraftRemote.Builder-readTimeout"></a>
 
 ### `readTimeout`
 
-通常requestの応答を待つtimeoutを設定します。既定は10秒です。
+responseTimeoutの古い名前です（非推奨）。最後の受信から数え、尽きたら接続を回収する点がresponseTimeoutと同じです。
 
 ```java
 MinecraftRemote.Builder readTimeout(Duration timeout)
@@ -365,11 +424,71 @@ helloで最初のbuild context（dimensionと原点）を要求します。dimen
 MinecraftRemote.Builder buildContext(String dimension, int originX, int originY, int originZ)
 ```
 
+<a id="api-MinecraftRemote.Builder-keepAlive"></a>
+
+### `keepAlive`
+
+何も送っていない間の切断を見つけるTCP keepaliveを設定します。既定はKeepAlive.DEFAULT（30秒静かになったら15秒ごとに8回、約2.5分）です。
+
+```java
+MinecraftRemote.Builder keepAlive(KeepAlive settings)
+```
+
+<a id="api-MinecraftRemote.Builder-disableKeepAlive"></a>
+
+### `disableKeepAlive`
+
+TCP keepaliveを使いません。何もしていない間の切断は、次の呼び出しまで分かりません。
+
+```java
+MinecraftRemote.Builder disableKeepAlive()
+```
+
+<a id="api-MinecraftRemote.Builder-autoReconnect"></a>
+
+### `autoReconnect`
+
+接続が切れた後の次の呼び出しで、自動でつなぎ直すかを決めます。既定はtrueです。保存したtokenで新しいhelloから始め、サーバーが最後に確かめた次元と原点を戻します。pairingはせず、requestを再送しません。falseなら、切れた後の呼び出しはNotSentException（DISCONNECTED）になります。
+
+```java
+MinecraftRemote.Builder autoReconnect(boolean enabled)
+```
+
+<a id="api-MinecraftRemote.Builder-reconnectListener"></a>
+
+### `reconnectListener`
+
+つなぎ直したときに呼ばれる処理を登録します。ReconnectEventで、server・session・catalogHashの変化と、eventを失ったかもしれないことを知らせます。
+
+```java
+MinecraftRemote.Builder reconnectListener(ReconnectListener listener)
+```
+
+<a id="api-MinecraftRemote.Builder-reconnectBackoff"></a>
+
+### `reconnectBackoff`
+
+つなぎ直しに失敗したときの待ち時間を設定します。initialから2倍ずつmaxまで延ばし、それぞれを最大半分までランダムに縮めて、同時に切れたclientを分散させます。既定は500ミリ秒と30秒です。
+
+```java
+MinecraftRemote.Builder reconnectBackoff(Duration initial, Duration max)
+```
+
+<a id="api-MinecraftRemote.Builder-reconnectWindow"></a>
+
+### `reconnectWindow`
+
+1回の呼び出しがつなぎ直しを試み続ける長さを設定します。既定は5分です。尽きたらNotSentException（CONNECTION_FAILED）になります。
+
+```java
+MinecraftRemote.Builder reconnectWindow(Duration window)
+```
+
 <a id="api-MinecraftRemote.Builder-connect"></a>
 
 ### `connect`
 
-TCP接続、hello、互換判定、必要な認証とpairingを進め、利用可能なMinecraftRemoteを返します。失敗時は接続を閉じます。
+TCP接続、hello、互換判定、必要な認証とpairingを進め、利用可能なMinecraftRemoteを返します。失敗時は接続を閉じます。承認を待つ間に接続が切れたら、期限内なら新しい接続で同じpairingのpollを続けます。
 
 ```java
 MinecraftRemote connect() throws MinecraftRemoteException
@@ -523,6 +642,14 @@ static ClientIdentity defaultIdentity()
 
 [実装](../src/main/java/club/code2create/mcremote/client/ClientIdentity.java)
 
+<a id="type-CompletionUnknownException"></a>
+
+## `CompletionUnknownException`
+
+requestを送ったが、応答の前に接続が閉じたか回収されたため、サーバーで実行されたかが分からない状態。相手のEOF、socketのerror、応答の待ち時間の尽き、keepaliveでの切断、closeが原因です。reasonを持たず、自動で再送しません。もう一度呼ぶかはapplicationが決めます。
+
+[実装](../src/main/java/club/code2create/mcremote/client/CompletionUnknownException.java)
+
 <a id="type-CredentialStore"></a>
 
 ## `CredentialStore`
@@ -628,6 +755,34 @@ record HelloResult(
 各要素は同名のアクセサー（例: `値.要素名()`）で取得できます。
 
 [実装](../src/main/java/club/code2create/mcremote/client/HelloResult.java)
+
+<a id="type-KeepAlive"></a>
+
+## `KeepAlive`
+
+何も送っていない間に死んだ接続を見つけるTCP keepaliveの設定。OSがprobeを送り、答えが無ければ接続が閉じて、次の呼び出しでつなぎ直します。idle・interval・probesは、JDKとOSが対応する所（jdk.net.ExtendedSocketOptions）で効き、それ以外ではOSの既定です。既定のDEFAULTは30秒・15秒・8回です。
+
+```java
+record KeepAlive(
+    Duration idle,
+    Duration interval,
+    int probes
+)
+```
+
+各要素は同名のアクセサー（例: `値.要素名()`）で取得できます。
+
+<a id="api-KeepAlive-tolerance"></a>
+
+### `tolerance`
+
+答えない相手を待つ長さ（idle＋interval×probes）を返します。既定では2.5分です。
+
+```java
+Duration tolerance()
+```
+
+[実装](../src/main/java/club/code2create/mcremote/client/KeepAlive.java)
 
 <a id="type-MinecraftEvent"></a>
 
@@ -812,6 +967,34 @@ record MinecraftEvent.ProjectileHit(
 
 [実装](../src/main/java/club/code2create/mcremote/client/MinecraftRemoteException.java)
 
+<a id="type-NotSentException"></a>
+
+## `NotSentException`
+
+使える接続を用意できず、requestを送らなかった状態。サーバーはrequestを受け取っていません。reason()で理由を調べます。
+
+<a id="api-NotSentException-reason"></a>
+
+### `reason`
+
+送らなかった理由を返します。
+
+```java
+NotSentException.Reason reason()
+```
+
+[実装](../src/main/java/club/code2create/mcremote/client/NotSentException.java)
+
+<a id="type-NotSentException.Reason"></a>
+
+## `NotSentException.Reason`
+
+送らなかった理由。CONNECTION_FAILEDはreconnectWindowの間につなげなかった、INCOMPATIBLE_PROTOCOLは新しい接続のhelloの版が合わなかった、PAIRING_REQUIREDはauth_requiredだった（つなぎ直しではpairingしません）、HELLO_FAILEDはhelloがほかのerrorだった、DISCONNECTEDは自動のつなぎ直しが無効か、closeされた状態です。
+
+選択肢: `CONNECTION_FAILED`、`INCOMPATIBLE_PROTOCOL`、`PAIRING_REQUIRED`、`HELLO_FAILED`、`DISCONNECTED`。
+
+[実装](../src/main/java/club/code2create/mcremote/client/NotSentException.java)
+
 <a id="type-PairingChallenge"></a>
 
 ## `PairingChallenge`
@@ -972,6 +1155,82 @@ String clientRequires()
 ```
 
 [実装](../src/main/java/club/code2create/mcremote/client/ProtocolMismatchException.java)
+
+<a id="type-ReconnectEvent"></a>
+
+## `ReconnectEvent`
+
+つなぎ直したときに変わったこと。前と後のhelloの結果と、helloで戻した次元と原点を持ちます。eventは接続ごとに持つので、切れていた間のeventは失われたかもしれません。前の接続のevent cursorは使い直さず、0から読み直します。前の接続のrequestは再送していません。
+
+```java
+record ReconnectEvent(
+    HelloResult previous,
+    HelloResult current,
+    BuildContext restoredBuild
+)
+```
+
+各要素は同名のアクセサー（例: `値.要素名()`）で取得できます。
+
+<a id="api-ReconnectEvent-eventsMayHaveBeenLost"></a>
+
+### `eventsMayHaveBeenLost`
+
+常にtrueを返します。切れていた間のeventは失われたかもしれません。
+
+```java
+boolean eventsMayHaveBeenLost()
+```
+
+<a id="api-ReconnectEvent-serverChanged"></a>
+
+### `serverChanged`
+
+helloのserverが変わったかを返します。
+
+```java
+boolean serverChanged()
+```
+
+<a id="api-ReconnectEvent-sessionChanged"></a>
+
+### `sessionChanged`
+
+helloのsessionが変わったかを返します。
+
+```java
+boolean sessionChanged()
+```
+
+<a id="api-ReconnectEvent-catalogHashChanged"></a>
+
+### `catalogHashChanged`
+
+helloのcatalogHashが変わったかを返します。変わったら、保持しているCatalogは古くなっています。
+
+```java
+boolean catalogHashChanged()
+```
+
+[実装](../src/main/java/club/code2create/mcremote/client/ReconnectEvent.java)
+
+<a id="type-ReconnectListener"></a>
+
+## `ReconnectListener`
+
+つなぎ直したときに呼ばれるコールバック。
+
+<a id="api-ReconnectListener-reconnected"></a>
+
+### `reconnected`
+
+つなぎ直した呼び出しのthreadで、その呼び出しを送る前に呼ばれます。ほかの呼び出しは戻るまで待つので、短く済ませます。中からこのクライアントを呼べます。
+
+```java
+void reconnected(ReconnectEvent event)
+```
+
+[実装](../src/main/java/club/code2create/mcremote/client/ReconnectListener.java)
 
 <a id="type-RemoteCallException"></a>
 
@@ -1251,7 +1510,7 @@ record Sign.Value(
 
 ## `TransportException`
 
-接続・切断・送受信・timeoutの失敗。操作が実行されたか不明な場合があるため自動再実行しません。
+接続・切断・送受信・timeoutの、クライアントが判断した失敗。サーバーのerrorではありません。送ったが完了が分からないものはCompletionUnknownException、送っていないものはNotSentExceptionです。自動で再送しません。
 
 [実装](../src/main/java/club/code2create/mcremote/client/TransportException.java)
 

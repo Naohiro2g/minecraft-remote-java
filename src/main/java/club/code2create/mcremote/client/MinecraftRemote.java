@@ -12,23 +12,42 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.DoubleSupplier;
 import java.util.function.LongSupplier;
 
 /**
  * A synchronous Java client for the Minecraft Remote Protocol 23.0.0 Phase B slice.
  *
- * <p>One instance owns one TCP connection and its connection-scoped build context. Public methods
- * are not safe for concurrent use.
+ * <p>One instance holds one TCP connection at a time and its connection-scoped build context.
+ * Public methods may be called from several threads: their requests share the connection and
+ * wait for their own responses.
+ *
+ * <p>A request waits for its response for {@link Builder#responseTimeout(Duration)}, counted from
+ * the last bytes received on the connection; when that runs out, the connection is collected and
+ * every pending request fails with {@link CompletionUnknownException}. TCP keepalive notices a
+ * dead connection while nothing is pending. After a connection closes, the next call reconnects
+ * by itself, restoring the dimension and origin the server last confirmed; requests are never
+ * resent. See {@link Builder#autoReconnect(boolean)}.
  */
 public final class MinecraftRemote implements AutoCloseable {
 
     public static final String PROTOCOL = "23.0.0";
 
+    /**
+     * The default response wait: 15 minutes after the last receive. Ordinary use never meets it;
+     * a long build keeps it from running out as long as other responses keep arriving.
+     */
+    public static final Duration DEFAULT_RESPONSE_TIMEOUT = Duration.ofMinutes(15);
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final TypeReference<LinkedHashMap<String, Object>> OBJECT_MAP =
             new TypeReference<>() {};
     private static final String AUTH_REQUIRED = "auth_required";
+    private static final String PROTOCOL_MISMATCH = "protocol_mismatch";
     private static final Set<String> AUTH_DISCARD_REASONS = Set.of(
             "auth_required",
             "token_expired",
@@ -38,7 +57,6 @@ public final class MinecraftRemote implements AutoCloseable {
 
     private final ServerTarget target;
     private final Duration connectTimeout;
-    private final Duration readTimeout;
     private final Duration pairPollInterval;
     private final CredentialStore credentialStore;
     private final PairingListener pairingListener;
@@ -47,18 +65,28 @@ public final class MinecraftRemote implements AutoCloseable {
     private final boolean announceClientIdentity;
     private final Map<String, Object> requestedBuild;
     private final String protocol;
-    private final LongSupplier nanoClock;
+    private final Ticker ticker;
+    private final KeepAlive keepAlive;
+    private final boolean autoReconnect;
+    private final ReconnectListener reconnectListener;
+    private final Duration reconnectInitialDelay;
+    private final Duration reconnectMaxDelay;
+    private final Duration reconnectWindow;
+    private final DoubleSupplier random;
     private final Consumer<JsonRpcConnection> connectionObserver;
+    private final BiConsumer<JsonRpcConnection, Long> requestObserver;
+    private final ReentrantLock lock = new ReentrantLock();
 
-    private JsonRpcConnection connection;
-    private HelloResult helloResult;
-    private BuildContext buildContext;
-    private boolean closed;
+    private volatile Duration responseTimeout;
+    private volatile JsonRpcConnection connection;
+    private volatile HelloResult helloResult;
+    private volatile BuildContext buildContext;
+    private volatile boolean closed;
 
     private MinecraftRemote(Builder builder) {
         target = builder.target;
         connectTimeout = builder.connectTimeout;
-        readTimeout = builder.readTimeout;
+        responseTimeout = builder.responseTimeout;
         pairPollInterval = builder.pairPollInterval;
         credentialStore = builder.credentialStore;
         pairingListener = builder.pairingListener;
@@ -67,24 +95,71 @@ public final class MinecraftRemote implements AutoCloseable {
         announceClientIdentity = builder.clientIdentityConfigured;
         requestedBuild = builder.requestedBuild;
         protocol = builder.protocol;
-        nanoClock = builder.nanoClock;
+        ticker = builder.ticker;
+        keepAlive = builder.keepAlive;
+        autoReconnect = builder.autoReconnect;
+        reconnectListener = builder.reconnectListener;
+        reconnectInitialDelay = builder.reconnectInitialDelay;
+        reconnectMaxDelay = builder.reconnectMaxDelay;
+        reconnectWindow = builder.reconnectWindow;
+        random = builder.random;
         connectionObserver = builder.connectionObserver;
+        requestObserver = builder.requestObserver;
     }
 
     public static Builder builder(String host, int port) {
         return new Builder(new ServerTarget(host, port));
     }
 
-    /** Returns the server-authoritative handshake result. */
+    /** Returns the server-authoritative handshake result of the current or last connection. */
     public HelloResult helloResult() {
         ensureOpen();
         return helloResult;
     }
 
-    /** Returns the current server-canonical build context. */
+    /** Returns the build context the server last confirmed. */
     public BuildContext buildContext() {
         ensureOpen();
         return buildContext;
+    }
+
+    /**
+     * Whether a connection is open now. It turns false when the peer closed, the socket failed,
+     * keepalive found the peer gone, or the response wait ran out; the next call reconnects.
+     */
+    public boolean isConnected() {
+        JsonRpcConnection current = connection;
+        return !closed && current != null && current.isOpen();
+    }
+
+    /** Returns how long pending requests wait after the last receive. */
+    public Duration responseTimeout() {
+        return responseTimeout;
+    }
+
+    /**
+     * Changes how long pending requests wait after the last receive, for this connection and the
+     * connections opened by reconnecting. Pending requests use the new value at once.
+     */
+    public void setResponseTimeout(Duration timeout) {
+        Duration value = Builder.positive(timeout, "timeout");
+        responseTimeout = value;
+        JsonRpcConnection current = connection;
+        if (current != null) {
+            current.responseTimeout(value);
+        }
+    }
+
+    /** Changes the dimension for subsequent commands; the origin is kept. */
+    public BuildContext setDimension(String dimension) throws MinecraftRemoteException {
+        Objects.requireNonNull(dimension, "dimension");
+        if (dimension.isBlank()) {
+            throw new IllegalArgumentException("dimension must not be blank");
+        }
+        BuildContext updated = decodeBuildContext(
+                request("build.setDimension", List.of(dimension)), "build.setDimension result");
+        buildContext = updated;
+        return updated;
     }
 
     /** Changes the origin for subsequent origin-relative commands. */
@@ -94,7 +169,6 @@ public final class MinecraftRemote implements AutoCloseable {
         buildContext = updated;
         return updated;
     }
-
     /** Posts one message to Minecraft chat and waits for the server response. */
     public void postToChat(String message) throws MinecraftRemoteException {
         Objects.requireNonNull(message, "message");
@@ -296,21 +370,29 @@ public final class MinecraftRemote implements AutoCloseable {
             return;
         }
         closed = true;
-        if (connection != null) {
-            connection.close();
-            connection = null;
+        JsonRpcConnection current = connection;
+        if (current != null) {
+            // Pending requests fail as completion unknown; a reconnect in progress stops.
+            current.close();
         }
     }
 
+    /** Connects with the stored token, pairing when the server answers {@code auth_required}. */
+    private void connect() throws MinecraftRemoteException {
+        acceptHello(handshake(requestedBuild, true));
+    }
+
     /**
-     * Connects with the stored token, following the reason-driven flow of wire 6.5.
+     * Opens a connection and says hello with the stored token, following the reason-driven flow
+     * of wire 6.5, and leaves the connection open on success.
      *
      * <p>A token rejected with an authentication reason is discarded and hello is retried without a
-     * token. Pairing starts only when the server answers {@code auth_required}, at most once per
-     * call. When a later step fails, the earlier token rejection is attached as a suppressed
-     * exception.
+     * token. Pairing starts only when the server answers {@code auth_required} and
+     * {@code allowPairing} is true, at most once per call. When a later step fails, the earlier
+     * token rejection is attached as a suppressed exception. On failure the connection is closed.
      */
-    private void connect() throws MinecraftRemoteException {
+    private HelloResult handshake(Map<String, Object> build, boolean allowPairing)
+            throws MinecraftRemoteException {
         String token = credentialStore.load(target).orElse(null);
         RemoteCallException rejectedToken = null;
         boolean paired = false;
@@ -318,8 +400,7 @@ public final class MinecraftRemote implements AutoCloseable {
             openConnection();
             while (true) {
                 try {
-                    acceptHello(hello(token));
-                    return;
+                    return hello(token, build);
                 } catch (RemoteCallException exception) {
                     String reason = exception.reason().orElse(null);
                     if (!AUTH_DISCARD_REASONS.contains(reason)) {
@@ -340,21 +421,21 @@ public final class MinecraftRemote implements AutoCloseable {
                         }
                         // Back to hello without a token; only auth_required leads to pairing.
                         rejectedToken = exception;
-                        reconnect();
+                        reopenConnection();
                         continue;
                     }
-                    if (pairingListener == null) {
+                    if (!allowPairing || pairingListener == null) {
                         throw new PairingRequiredException(reason);
                     }
-                    reconnect();
+                    reopenConnection();
                     token = pair();
                     credentialStore.save(target, token);
                     paired = true;
-                    reconnect();
+                    reopenConnection();
                 }
             }
         } catch (MinecraftRemoteException exception) {
-            close();
+            closeConnection();
             if (rejectedToken != null && exception != rejectedToken) {
                 exception.addSuppressed(rejectedToken);
             }
@@ -362,7 +443,8 @@ public final class MinecraftRemote implements AutoCloseable {
         }
     }
 
-    private HelloResult hello(String token) throws MinecraftRemoteException {
+    private HelloResult hello(String token, Map<String, Object> build)
+            throws MinecraftRemoteException {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("protocol", protocol);
         if (announceClientIdentity) {
@@ -371,10 +453,11 @@ public final class MinecraftRemote implements AutoCloseable {
         if (token != null && !token.isBlank()) {
             params.put("auth", Map.of("token", token));
         }
-        if (requestedBuild != null) {
-            params.put("build", requestedBuild);
+        if (build != null) {
+            params.put("build", build);
         }
-        JsonNode result = request("hello", params);
+        JsonRpcConnection current = connection;
+        JsonNode result = current.request("hello", params);
         if (!result.isObject()) {
             throw new ProtocolException("hello result must be an object");
         }
@@ -382,7 +465,11 @@ public final class MinecraftRemote implements AutoCloseable {
         String serverProtocol = requiredText(result, "protocol", "hello result");
         ProtocolVersion required = ProtocolVersion.parse(protocol);
         ProtocolVersion advertised = ProtocolVersion.parse(serverProtocol);
-        if (!advertised.satisfies(required)) {
+        boolean compatible = advertised.satisfies(required);
+        current.compatible(compatible);
+        if (!compatible) {
+            // 2026-11-12-01: close without another request and report the failure.
+            current.close();
             throw new ProtocolMismatchException(serverProtocol, protocol);
         }
 
@@ -419,12 +506,18 @@ public final class MinecraftRemote implements AutoCloseable {
         buildContext = new BuildContext(result.dimension(), result.origin());
     }
 
+    /**
+     * Pairs and returns the token. When the connection closes while waiting for approval, the next
+     * poll for the same {@code pairing_id} goes on a new connection; a poll whose response was
+     * lost ends as completion unknown, and the next one continues polling rather than resending it
+     * (2026-11-12-05). A connection that cannot be opened ends the pairing.
+     */
     private String pair() throws MinecraftRemoteException {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("token_type", tokenType.wireName());
         params.put("client", clientIdentityParams());
 
-        JsonNode begin = request("auth.pairBegin", params);
+        JsonNode begin = connection.request("auth.pairBegin", params);
         if (!begin.isObject()) {
             throw new ProtocolException("auth.pairBegin result must be an object");
         }
@@ -435,9 +528,26 @@ public final class MinecraftRemote implements AutoCloseable {
                 pairCode, displayPairCode(pairCode), Duration.ofSeconds(expiresSeconds));
         pairingListener.pairingRequired(challenge);
 
-        long deadline = nanoClock.getAsLong() + challenge.expiresIn().toNanos();
+        long deadline = ticker.nanoTime() + challenge.expiresIn().toNanos();
+        boolean firstPoll = true;
         while (true) {
-            JsonNode poll = request("auth.pairPoll", Map.of("pairing_id", pairingId));
+            if (!firstPoll && deadline - ticker.nanoTime() <= 0) {
+                // Time passed while waiting between polls: the client judges the expiry itself
+                // instead of sending the next poll, and does not imitate the server's error shape.
+                // The first poll always goes out, so the server can report its own expiry (AU-02).
+                throw new PairingExpiredException(challenge.expiresIn());
+            }
+            firstPoll = false;
+            JsonNode poll;
+            try {
+                if (!connection.isOpen()) {
+                    reopenConnection();
+                }
+                poll = connection.request("auth.pairPoll", Map.of("pairing_id", pairingId));
+            } catch (CompletionUnknownException | NotSentException lost) {
+                waitBeforeNextPoll(deadline);
+                continue;
+            }
             if (!poll.isObject()) {
                 throw new ProtocolException("auth.pairPoll result must be an object");
             }
@@ -448,12 +558,14 @@ public final class MinecraftRemote implements AutoCloseable {
             if (!"pending".equals(status)) {
                 throw new ProtocolException("unknown auth.pairPoll status: " + status);
             }
-            long remaining = deadline - nanoClock.getAsLong();
-            if (remaining <= 0) {
-                // The client judged the expiry; it does not imitate the server's error shape.
-                throw new PairingExpiredException(challenge.expiresIn());
-            }
-            sleep(Duration.ofNanos(Math.min(remaining, pairPollInterval.toNanos())));
+            waitBeforeNextPoll(deadline);
+        }
+    }
+
+    private void waitBeforeNextPoll(long deadline) throws MinecraftRemoteException {
+        long remaining = deadline - ticker.nanoTime();
+        if (remaining > 0) {
+            sleep(Math.min(remaining, pairPollInterval.toNanos()), "pairing");
         }
     }
 
@@ -465,26 +577,156 @@ public final class MinecraftRemote implements AutoCloseable {
         return client;
     }
 
-    /** Sends one already-encoded request on the current connection (package-private for tests). */
+    /**
+     * Sends one already-encoded request and waits for its response (package-private for tests).
+     * After the connection closed, it reconnects first; it never resends a request.
+     */
     JsonNode request(String method, Object params) throws MinecraftRemoteException {
+        JsonRpcConnection used;
+        long id;
+        // Sending and reconnecting share one lock, so threads that notice a closed connection
+        // together reconnect once, and requests go out in the order the threads got the lock.
+        lock.lock();
+        try {
+            used = usableConnection();
+            try {
+                id = used.send(method, params);
+            } catch (NotSentException closedMeanwhile) {
+                // The connection closed after the check; nothing was written, so this is no resend.
+                used = usableConnection();
+                id = used.send(method, params);
+            }
+        } finally {
+            lock.unlock();
+        }
+        requestObserver.accept(used, id);
+        return used.await(id);
+    }
+
+    /** Returns an open connection, reconnecting first when allowed. Holds {@link #lock}. */
+    private JsonRpcConnection usableConnection() throws MinecraftRemoteException {
         ensureOpen();
-        return connection.request(method, params);
+        JsonRpcConnection current = connection;
+        if (current != null && current.isOpen()) {
+            return current;
+        }
+        if (!autoReconnect) {
+            throw new NotSentException(NotSentException.Reason.DISCONNECTED,
+                    "Connection is closed and automatic reconnecting is disabled", null);
+        }
+        reconnect();
+        return connection;
+    }
+
+    /**
+     * Opens a new connection after the previous one closed (2026-11-11-01 (5)). The new hello uses
+     * the stored token and asks for the last confirmed build context. It never pairs. Connection
+     * failures are retried with growing, jittered waits until the reconnect window runs out.
+     */
+    private void reconnect() throws MinecraftRemoteException {
+        HelloResult previous = helloResult;
+        BuildContext restore = buildContext;
+        Map<String, Object> build = new LinkedHashMap<>();
+        build.put("dimension", restore.dimension());
+        build.put("origin", List.of(restore.origin().x(), restore.origin().y(), restore.origin().z()));
+        long started = ticker.nanoTime();
+        long delay = reconnectInitialDelay.toNanos();
+        while (true) {
+            TransportException failure;
+            try {
+                HelloResult current = handshake(build, false);
+                if (closed) {
+                    closeConnection();
+                    throw new NotSentException(NotSentException.Reason.DISCONNECTED,
+                            "MinecraftRemote was closed while reconnecting", null);
+                }
+                acceptHello(current);
+                reconnectListener.reconnected(new ReconnectEvent(previous, current, restore));
+                return;
+            } catch (ProtocolMismatchException exception) {
+                throw notSent(NotSentException.Reason.INCOMPATIBLE_PROTOCOL, exception);
+            } catch (PairingRequiredException exception) {
+                throw notSent(NotSentException.Reason.PAIRING_REQUIRED, exception);
+            } catch (NotSentException exception) {
+                throw exception;
+            } catch (TransportException exception) {
+                failure = exception;
+            } catch (RemoteCallException exception) {
+                throw notSent(PROTOCOL_MISMATCH.equals(exception.reason().orElse(null))
+                        ? NotSentException.Reason.INCOMPATIBLE_PROTOCOL
+                        : NotSentException.Reason.HELLO_FAILED, exception);
+            } catch (MinecraftRemoteException exception) {
+                throw notSent(NotSentException.Reason.HELLO_FAILED, exception);
+            }
+            long wait = jittered(delay);
+            if (closed) {
+                throw new NotSentException(NotSentException.Reason.DISCONNECTED,
+                        "MinecraftRemote was closed while reconnecting", failure);
+            }
+            if (ticker.nanoTime() - started + wait > reconnectWindow.toNanos()) {
+                throw new NotSentException(NotSentException.Reason.CONNECTION_FAILED,
+                        "Could not reconnect to " + target.credentialKey() + " within "
+                                + reconnectWindow, failure);
+            }
+            try {
+                ticker.sleep(wait);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                NotSentException interrupted = new NotSentException(
+                        NotSentException.Reason.CONNECTION_FAILED,
+                        "Interrupted while waiting to reconnect", exception);
+                interrupted.addSuppressed(failure);
+                throw interrupted;
+            }
+            delay = Math.min(delay * 2, reconnectMaxDelay.toNanos());
+        }
+    }
+
+    /** A wait between half and all of {@code delay}, so clients that reconnect together spread out. */
+    private long jittered(long delay) {
+        double fraction = Math.min(1.0, Math.max(0.0, random.getAsDouble()));
+        return delay / 2 + (long) (delay / 2 * fraction);
+    }
+
+    private static NotSentException notSent(
+            NotSentException.Reason reason, MinecraftRemoteException cause) {
+        return new NotSentException(reason, "Reconnecting failed: " + cause.getMessage(), cause);
+    }
+
+    /** Collects the current connection if its response wait ran out (package-private for tests). */
+    void checkTimers() {
+        JsonRpcConnection current = connection;
+        if (current != null) {
+            current.checkTimeout();
+        }
+    }
+
+    /** The current connection (package-private for tests). */
+    JsonRpcConnection currentConnection() {
+        return connection;
     }
 
     private void openConnection() throws TransportException {
-        connection = new JsonRpcConnection(target, connectTimeout, readTimeout);
-        connectionObserver.accept(connection);
+        JsonRpcConnection opened = new JsonRpcConnection(
+                target, connectTimeout, responseTimeout, keepAlive, ticker);
+        connection = opened;
+        connectionObserver.accept(opened);
     }
 
-    private void reconnect() throws TransportException {
-        if (connection != null) {
-            connection.close();
-        }
+    private void reopenConnection() throws TransportException {
+        closeConnection();
         openConnection();
     }
 
+    private void closeConnection() {
+        JsonRpcConnection current = connection;
+        if (current != null) {
+            current.close();
+        }
+    }
+
     private void ensureOpen() {
-        if (closed || connection == null) {
+        if (closed) {
             throw new IllegalStateException("MinecraftRemote is closed");
         }
     }
@@ -1074,12 +1316,12 @@ public final class MinecraftRemote implements AutoCloseable {
         return pairCode;
     }
 
-    private static void sleep(Duration duration) throws MinecraftRemoteException {
+    private void sleep(long nanos, String what) throws MinecraftRemoteException {
         try {
-            Thread.sleep(duration);
+            ticker.sleep(nanos);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new MinecraftRemoteException("Interrupted while waiting for pairing", exception);
+            throw new MinecraftRemoteException("Interrupted while waiting for " + what, exception);
         }
     }
 
@@ -1088,7 +1330,7 @@ public final class MinecraftRemote implements AutoCloseable {
 
         private final ServerTarget target;
         private Duration connectTimeout = Duration.ofSeconds(10);
-        private Duration readTimeout = Duration.ofSeconds(10);
+        private Duration responseTimeout = DEFAULT_RESPONSE_TIMEOUT;
         private Duration pairPollInterval = Duration.ofMillis(1500);
         private CredentialStore credentialStore = CredentialStore.none();
         private PairingListener pairingListener;
@@ -1097,8 +1339,16 @@ public final class MinecraftRemote implements AutoCloseable {
         private boolean clientIdentityConfigured;
         private Map<String, Object> requestedBuild;
         private String protocol = PROTOCOL;
-        private LongSupplier nanoClock = System::nanoTime;
+        private Ticker ticker = Ticker.SYSTEM;
+        private KeepAlive keepAlive = KeepAlive.DEFAULT;
+        private boolean autoReconnect = true;
+        private ReconnectListener reconnectListener = event -> {};
+        private Duration reconnectInitialDelay = Duration.ofMillis(500);
+        private Duration reconnectMaxDelay = Duration.ofSeconds(30);
+        private Duration reconnectWindow = Duration.ofMinutes(5);
+        private DoubleSupplier random = () -> ThreadLocalRandom.current().nextDouble();
         private Consumer<JsonRpcConnection> connectionObserver = connection -> {};
+        private BiConsumer<JsonRpcConnection, Long> requestObserver = (connection, id) -> {};
 
         private Builder(ServerTarget target) {
             this.target = target;
@@ -1109,9 +1359,26 @@ public final class MinecraftRemote implements AutoCloseable {
             return this;
         }
 
-        public Builder readTimeout(Duration timeout) {
-            readTimeout = positive(timeout, "readTimeout");
+        /**
+         * Sets how long pending requests wait for a response, counted from the last bytes the
+         * connection received; the default is {@link #DEFAULT_RESPONSE_TIMEOUT}. When it runs out,
+         * the connection is collected and its pending requests fail with
+         * {@link CompletionUnknownException}.
+         */
+        public Builder responseTimeout(Duration timeout) {
+            responseTimeout = positive(timeout, "responseTimeout");
             return this;
+        }
+
+        /**
+         * The former name of {@link #responseTimeout(Duration)}.
+         *
+         * @deprecated use {@link #responseTimeout(Duration)}; the wait is now counted from the last
+         *     receive and collects the connection when it runs out
+         */
+        @Deprecated
+        public Builder readTimeout(Duration timeout) {
+            return responseTimeout(timeout);
         }
 
         public Builder pairPollInterval(Duration interval) {
@@ -1157,6 +1424,58 @@ public final class MinecraftRemote implements AutoCloseable {
             return this;
         }
 
+        /** Sets the TCP keepalive used to notice a dead connection; the default is {@link KeepAlive#DEFAULT}. */
+        public Builder keepAlive(KeepAlive settings) {
+            keepAlive = Objects.requireNonNull(settings, "settings");
+            return this;
+        }
+
+        /** Turns TCP keepalive off; a dead idle connection is then noticed only by the next call. */
+        public Builder disableKeepAlive() {
+            keepAlive = null;
+            return this;
+        }
+
+        /**
+         * Whether the next call after a closed connection reconnects by itself; the default is true.
+         * Reconnecting starts from hello with the stored token, restores the dimension and origin
+         * the server last confirmed, never pairs, and never resends requests. When it fails, the
+         * call fails with {@link NotSentException}. When false, calls after a close fail with
+         * {@link NotSentException} ({@link NotSentException.Reason#DISCONNECTED}).
+         */
+        public Builder autoReconnect(boolean enabled) {
+            autoReconnect = enabled;
+            return this;
+        }
+
+        /** Receives a {@link ReconnectEvent} each time the client reconnected. */
+        public Builder reconnectListener(ReconnectListener listener) {
+            reconnectListener = Objects.requireNonNull(listener, "listener");
+            return this;
+        }
+
+        /**
+         * Sets the waits between reconnect attempts: the first is {@code initial}, each next one
+         * doubles up to {@code max}, and each is shortened by a random part of up to half, so
+         * clients that lost the same server spread out. Defaults: 500 ms and 30 seconds.
+         */
+        public Builder reconnectBackoff(Duration initial, Duration max) {
+            Duration first = positive(initial, "initial");
+            Duration longest = positive(max, "max");
+            if (longest.compareTo(first) < 0) {
+                throw new IllegalArgumentException("max must not be shorter than initial");
+            }
+            reconnectInitialDelay = first;
+            reconnectMaxDelay = longest;
+            return this;
+        }
+
+        /** Sets how long one call keeps trying to reconnect; the default is 5 minutes. */
+        public Builder reconnectWindow(Duration window) {
+            reconnectWindow = positive(window, "window");
+            return this;
+        }
+
         /** Overrides the declared protocol; package-private so shared fixtures can use their value. */
         Builder protocol(String value) {
             try {
@@ -1168,13 +1487,29 @@ public final class MinecraftRemote implements AutoCloseable {
             return this;
         }
 
+        /** Reads time from {@code clock}; waits still use real time. */
         Builder nanoClock(LongSupplier clock) {
-            nanoClock = Objects.requireNonNull(clock, "clock");
+            ticker = Ticker.of(Objects.requireNonNull(clock, "clock"));
+            return this;
+        }
+
+        Builder ticker(Ticker value) {
+            ticker = Objects.requireNonNull(value, "ticker");
+            return this;
+        }
+
+        Builder random(DoubleSupplier value) {
+            random = Objects.requireNonNull(value, "random");
             return this;
         }
 
         Builder connectionObserver(Consumer<JsonRpcConnection> observer) {
             connectionObserver = Objects.requireNonNull(observer, "observer");
+            return this;
+        }
+
+        Builder requestObserver(BiConsumer<JsonRpcConnection, Long> observer) {
+            requestObserver = Objects.requireNonNull(observer, "observer");
             return this;
         }
 
@@ -1189,7 +1524,7 @@ public final class MinecraftRemote implements AutoCloseable {
             }
         }
 
-        private static Duration positive(Duration value, String name) {
+        static Duration positive(Duration value, String name) {
             Objects.requireNonNull(value, name);
             if (value.isZero() || value.isNegative()) {
                 throw new IllegalArgumentException(name + " must be positive");

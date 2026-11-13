@@ -179,7 +179,7 @@ class ExampleProtocolCompatibilityTest {
 
         MinecraftRemote connect() throws Exception {
             return MinecraftRemote.builder("127.0.0.1", server.getLocalPort())
-                    .readTimeout(Duration.ofSeconds(5)).connect();
+                    .responseTimeout(Duration.ofSeconds(5)).connect();
         }
 
         private Object result(String method, JsonNode params) throws Exception {
