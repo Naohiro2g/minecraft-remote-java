@@ -298,7 +298,7 @@ class Protocol23CapabilitiesTest {
             try (ScriptedPeer.PeerConnection connection = server.accept()) {
                 ObjectNode hello = connection.readRequest();
                 Map<String, Object> helloResult = new LinkedHashMap<>(helloResult());
-                helloResult.put("protocol", "23.1.0");
+                helloResult.put("protocol", "24.1.7");
                 connection.result(hello, helloResult);
                 ObjectNode poll = connection.readRequest();
                 connection.result(poll, result);
@@ -387,7 +387,7 @@ class Protocol23CapabilitiesTest {
 
     private static Map<String, Object> helloResult() {
         return Map.ofEntries(
-                Map.entry("protocol", "23.0.0"),
+                Map.entry("protocol", "24.0.0"),
                 Map.entry("mc_version", "1.21.8"),
                 Map.entry("supported_mc_versions", List.of("1.21.8")),
                 Map.entry("catalogHash", "sha256:fixture-catalog"),

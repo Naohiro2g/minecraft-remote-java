@@ -25,9 +25,9 @@ class MinecraftRemoteTest {
                     try (ScriptedPeer.PeerConnection connection = server.accept()) {
                         ObjectNode hello = connection.readRequest();
                         assertRequest(hello, 1, "hello");
-                        assertEquals("23.0.0", hello.path("params").path("protocol").asText());
+                        assertEquals("24.0.0", hello.path("params").path("protocol").asText());
                         assertEquals(1, hello.path("params").size());
-                        Map<String, Object> enforcementOffHello = helloResult("23.0.0");
+                        Map<String, Object> enforcementOffHello = helloResult("24.0.0");
                         enforcementOffHello.remove("session");
                         enforcementOffHello.remove("player");
                         enforcementOffHello.remove("permissions");
@@ -60,7 +60,7 @@ class MinecraftRemoteTest {
                     }
                 })) {
             try (MinecraftRemote client = MinecraftRemote.builder("127.0.0.1", peer.port()).connect()) {
-                assertEquals("23.0.0", client.helloResult().protocol());
+                assertEquals("24.0.0", client.helloResult().protocol());
                 assertEquals(new BlockPosition(200, 0, 200), client.helloResult().origin());
                 assertTrue(client.helloResult().session().isEmpty());
                 assertTrue(client.helloResult().player().isEmpty());
@@ -82,12 +82,35 @@ class MinecraftRemoteTest {
     }
 
     @Test
+    void announces2400IdentityAndAcceptsStructuredServerMetadata() throws Exception {
+        try (ScriptedPeer peer = new ScriptedPeer(server -> {
+            try (ScriptedPeer.PeerConnection connection = server.accept()) {
+                ObjectNode hello = connection.readRequest();
+                assertRequest(hello, 1, "hello");
+                assertEquals("24.0.0", hello.path("params").path("protocol").asText());
+                assertEquals("2400.0.0", hello.path("params").path("client").path("version").asText());
+                Map<String, Object> result = helloResult("24.0.0");
+                result.put("server", Map.of("name", "McRemote", "version", "2400.0.0rc1"));
+                connection.result(hello, result);
+            }
+        })) {
+            try (MinecraftRemote client = MinecraftRemote.builder("127.0.0.1", peer.port())
+                    .clientIdentity(ClientIdentity.defaultIdentity())
+                    .connect()) {
+                assertEquals("24.0.0", client.helloResult().protocol());
+                assertEquals(Optional.of("McRemote 2400.0.0rc1"), client.helloResult().server());
+            }
+            peer.await();
+        }
+    }
+
+    @Test
     void postsOneChatMessageAndFillsOneStructuredBlockRegion() throws Exception {
         try (ScriptedPeer peer = new ScriptedPeer(
                 server -> {
                     try (ScriptedPeer.PeerConnection connection = server.accept()) {
                         ObjectNode hello = connection.readRequest();
-                        connection.result(hello, helloResult("23.0.0"));
+                        connection.result(hello, helloResult("24.0.0"));
 
                         ObjectNode postToChat = connection.readRequest();
                         assertRequest(postToChat, 2, "chat.post");
@@ -127,7 +150,7 @@ class MinecraftRemoteTest {
                 server -> {
                     try (ScriptedPeer.PeerConnection connection = server.accept()) {
                         ObjectNode hello = connection.readRequest();
-                        connection.result(hello, helloResult("23.0.0"));
+                        connection.result(hello, helloResult("24.0.0"));
                         ObjectNode postToChat = connection.readRequest();
                         connection.result(postToChat, Map.of("delivered", true));
                     }
@@ -148,7 +171,7 @@ class MinecraftRemoteTest {
                 server -> {
                     try (ScriptedPeer.PeerConnection connection = server.accept()) {
                         ObjectNode hello = connection.readRequest();
-                        connection.result(hello, helloResult("23.0.0"));
+                        connection.result(hello, helloResult("24.0.0"));
 
                         ObjectNode setOrigin = connection.readRequest();
                         assertRequest(setOrigin, 2, "build.setOrigin");
@@ -205,7 +228,8 @@ class MinecraftRemoteTest {
                         assertEquals(
                                 "minecraft-remote-java",
                                 begin.path("params").path("client").path("name").asText());
-                        assertTrue(begin.path("params").path("client").has("version"));
+                        assertEquals("2400.0.0",
+                                begin.path("params").path("client").path("version").asText());
                         assertTrue(begin.path("params").path("client").has("locale"));
                         assertTrue(!begin.path("params").has("protocol"));
                         pairing.result(
@@ -232,7 +256,7 @@ class MinecraftRemoteTest {
                         assertEquals(
                                 "mcrs_secret",
                                 hello.path("params").path("auth").path("token").asText());
-                        authenticated.result(hello, helloResult("23.0.0"));
+                        authenticated.result(hello, helloResult("24.0.0"));
                     }
                 })) {
             ServerTarget target = new ServerTarget("127.0.0.1", peer.port());
@@ -289,7 +313,7 @@ class MinecraftRemoteTest {
                         assertEquals(
                                 "mcrs_replaced",
                                 hello.path("params").path("auth").path("token").asText());
-                        authenticated.result(hello, helloResult("23.0.0"));
+                        authenticated.result(hello, helloResult("24.0.0"));
                     }
                 })) {
             ServerTarget target = new ServerTarget("127.0.0.1", peer.port());
@@ -356,7 +380,7 @@ class MinecraftRemoteTest {
                 server -> {
                     try (ScriptedPeer.PeerConnection connection = server.accept()) {
                         ObjectNode hello = connection.readRequest();
-                        connection.result(hello, helloResult("24.0.0"));
+                        connection.result(hello, helloResult("23.3.0"));
                     }
                 })) {
             ServerTarget target = new ServerTarget("127.0.0.1", peer.port());
@@ -469,20 +493,21 @@ class MinecraftRemoteTest {
     }
 
     @Test
-    void rejectsAnIncompatibleProtocolAdvertisedByHello() throws Exception {
+    void rejectsProtocol23AdvertisedByHello() throws Exception {
         try (ScriptedPeer peer = new ScriptedPeer(
                 server -> {
                     try (ScriptedPeer.PeerConnection connection = server.accept()) {
                         ObjectNode hello = connection.readRequest();
-                        connection.result(hello, helloResult("24.0.0"));
+                        assertEquals("24.0.0", hello.path("params").path("protocol").asText());
+                        connection.result(hello, helloResult("23.3.0"));
                     }
                 })) {
             ProtocolMismatchException exception = assertThrows(
                     ProtocolMismatchException.class,
                     () -> MinecraftRemote.builder("127.0.0.1", peer.port()).connect());
             assertEquals("protocol_mismatch", exception.reason());
-            assertEquals("24.0.0", exception.serverProtocol());
-            assertEquals(MinecraftRemote.PROTOCOL, exception.clientRequires());
+            assertEquals("23.3.0", exception.serverProtocol());
+            assertEquals("24.0.0", exception.clientRequires());
             peer.await();
         }
     }
@@ -494,7 +519,7 @@ class MinecraftRemoteTest {
                 server -> {
                     try (ScriptedPeer.PeerConnection connection = server.accept()) {
                         ObjectNode hello = connection.readRequest();
-                        connection.result(hello, helloResult("24.0.0"));
+                        connection.result(hello, helloResult("23.3.0"));
                         connection.expectClientClose();
                     }
                 })) {
@@ -593,7 +618,7 @@ class MinecraftRemoteTest {
                 server -> {
                     try (ScriptedPeer.PeerConnection connection = server.accept()) {
                         ObjectNode hello = connection.readRequest();
-                        connection.result(hello, helloResult("23.0.0"));
+                        connection.result(hello, helloResult("24.0.0"));
                         ObjectNode getBlock = connection.readRequest();
                         assertRequest(getBlock, 2, "world.getBlock");
                         connection.expectClientClose();
@@ -624,7 +649,7 @@ class MinecraftRemoteTest {
                 server -> {
                     try (ScriptedPeer.PeerConnection connection = server.accept()) {
                         ObjectNode hello = connection.readRequest();
-                        connection.result(hello, helloResult("23.0.0"));
+                        connection.result(hello, helloResult("24.0.0"));
                         ObjectNode origin = connection.readRequest();
                         assertRequest(origin, 2, "build.setOrigin");
                         connection.result(origin, Map.of(
@@ -637,7 +662,7 @@ class MinecraftRemoteTest {
                                         "origin", List.of(8, 0, 9)),
                                 new com.fasterxml.jackson.databind.ObjectMapper().convertValue(
                                         hello.path("params").path("build"), Map.class));
-                        Map<String, Object> result = helloResult("23.0.0");
+                        Map<String, Object> result = helloResult("24.0.0");
                         result.put("origin", List.of(8, 0, 9));
                         connection.result(hello, result);
                         ObjectNode getBlock = connection.readRequest();
@@ -676,10 +701,10 @@ class MinecraftRemoteTest {
                         try (ScriptedPeer.PeerConnection connection = server.accept()) {
                             ObjectNode hello = connection.readRequest();
                             connection.error(hello.path("id").longValue(), code,
-                                    "Server protocol 23.2.1 cannot satisfy client protocol 23.0.0",
+                                    "Server protocol 23.2.1 cannot satisfy client protocol 24.0.0",
                                     Map.of("reason", "protocol_mismatch",
                                             "server", "23.2.1",
-                                            "client_requires", "23.0.0"));
+                                            "client_requires", "24.0.0"));
                         }
                     })) {
                 ServerTarget target = new ServerTarget("127.0.0.1", peer.port());
@@ -691,7 +716,7 @@ class MinecraftRemoteTest {
                                 .connect());
                 assertEquals(Optional.of("protocol_mismatch"), exception.reason());
                 assertEquals("23.2.1", exception.data().get("server"));
-                assertEquals("23.0.0", exception.data().get("client_requires"));
+                assertEquals("24.0.0", exception.data().get("client_requires"));
                 assertEquals("mcrs_keep_on_server_mismatch", store.load(target).orElseThrow());
                 peer.await();
             }
@@ -704,7 +729,7 @@ class MinecraftRemoteTest {
                 server -> {
                     try (ScriptedPeer.PeerConnection connection = server.accept()) {
                         ObjectNode hello = connection.readRequest();
-                        connection.result(hello, helloResult("23.0.0"));
+                        connection.result(hello, helloResult("24.0.0"));
                         ObjectNode setBlock = connection.readRequest();
                         connection.error(setBlock, -32602, "unknown block", "unknown_block");
                     }

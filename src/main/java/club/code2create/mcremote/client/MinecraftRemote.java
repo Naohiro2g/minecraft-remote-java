@@ -20,7 +20,7 @@ import java.util.function.DoubleSupplier;
 import java.util.function.LongSupplier;
 
 /**
- * A synchronous Java client for the Minecraft Remote Protocol 23.0.0 Phase B slice.
+ * A synchronous Java client for the Minecraft Remote Protocol 24.0.0.
  *
  * <p>One instance holds one TCP connection at a time and its connection-scoped build context.
  * Public methods may be called from several threads: their requests share the connection and
@@ -35,7 +35,7 @@ import java.util.function.LongSupplier;
  */
 public final class MinecraftRemote implements AutoCloseable {
 
-    public static final String PROTOCOL = "23.0.0";
+    public static final String PROTOCOL = "24.0.0";
 
     /**
      * The default response wait: 15 minutes after the last receive. Ordinary use never meets it;
@@ -498,7 +498,16 @@ public final class MinecraftRemote implements AutoCloseable {
                 dimension,
                 origin,
                 permissions,
-                optionalText(result.get("server"), "server"));
+                helloServer(result.get("server")));
+    }
+
+    private static Optional<String> helloServer(JsonNode server) throws ProtocolException {
+        if (server != null && server.isObject()) {
+            String name = requiredText(server, "name", "hello result.server");
+            String version = requiredText(server, "version", "hello result.server");
+            return Optional.of(name + " " + version);
+        }
+        return optionalText(server, "server");
     }
 
     private void acceptHello(HelloResult result) {

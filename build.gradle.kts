@@ -24,6 +24,7 @@ plugins {
 }
 
 group = "club.code2create.mcremote"
+version = "2400.0.0"
 description = "Minecraft Remote for Java"
 
 val buildJavaVersion = JavaVersion.current().majorVersion.toInt()
@@ -61,6 +62,10 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+tasks.jar {
+    manifest.attributes("Implementation-Version" to project.version)
 }
 
 tasks.withType<AbstractArchiveTask>().configureEach {
