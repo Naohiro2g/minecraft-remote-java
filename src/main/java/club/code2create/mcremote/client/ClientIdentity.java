@@ -14,7 +14,7 @@ public record ClientIdentity(String name, String version, String locale) {
 
     public static ClientIdentity defaultIdentity() {
         String implementationVersion = MinecraftRemote.class.getPackage().getImplementationVersion();
-        String version = implementationVersion == null ? "development" : implementationVersion;
+        String version = implementationVersion == null ? "2400.0.0" : implementationVersion;
         String locale = Locale.getDefault().toLanguageTag();
         return new ClientIdentity("minecraft-remote-java", version, locale);
     }

@@ -33,10 +33,11 @@ class SharedCompatibilityFixtureTest {
             tests.add(DynamicTest.dynamicTest(testCase.path("id").asText(),
                     () -> checkChat(fixture, testCase)));
         }
+        JsonNode eventBatches = fixture.path("event_batches");
         for (String group : List.of("cases", "stateful_rejections")) {
-            for (JsonNode testCase : fixture.path("event_batches").path(group)) {
+            for (JsonNode testCase : eventBatches.path(group)) {
                 tests.add(DynamicTest.dynamicTest(testCase.path("id").asText(),
-                        () -> checkEvents(fixture, testCase)));
+                        () -> checkEvents(eventBatches, testCase)));
             }
         }
         return tests.stream();
@@ -44,7 +45,7 @@ class SharedCompatibilityFixtureTest {
 
     private static void checkChat(JsonNode fixture, JsonNode testCase) throws Exception {
         JsonNode chat = fixture.path("chat_post");
-        try (ScriptedPeer peer = peer(fixture, chat.path("method").asText(),
+        try (ScriptedPeer peer = peer(chat.path("method").asText(),
                 chat.path("params"), testCase.path("result"))) {
             try (MinecraftRemote client = MinecraftRemote.builder("127.0.0.1", peer.port()).connect()) {
                 if (testCase.path("accept").asBoolean()) {
@@ -58,7 +59,7 @@ class SharedCompatibilityFixtureTest {
         }
     }
 
-    private static void checkEvents(JsonNode fixture, JsonNode testCase) throws Exception {
+    private static void checkEvents(JsonNode eventBatches, JsonNode testCase) throws Exception {
         JsonNode prior = testCase.path("previous_status");
         EventPollResult previous = new EventPollResult(List.of(),
                 prior.path("cursor").asLong(), prior.path("latestSequence").asLong(), 0,
@@ -70,7 +71,7 @@ class SharedCompatibilityFixtureTest {
         if (bounded) {
             params.add(MAPPER.createObjectNode().put("max_events", 16));
         }
-        try (ScriptedPeer peer = peer(fixture, fixture.path("event_batches").path("method").asText(),
+        try (ScriptedPeer peer = peer(eventBatches.path("method").asText(),
                 params, testCase.path("result"))) {
             try (MinecraftRemote client = MinecraftRemote.builder("127.0.0.1", peer.port()).connect()) {
                 if (!testCase.path("accept").asBoolean()) {
@@ -127,15 +128,16 @@ class SharedCompatibilityFixtureTest {
         }
     }
 
-    private static ScriptedPeer peer(JsonNode fixture, String method, JsonNode params, JsonNode result)
+    private static ScriptedPeer peer(String method, JsonNode params, JsonNode result)
             throws IOException {
         return new ScriptedPeer(server -> {
             try (var connection = server.accept()) {
                 ObjectNode hello = connection.readRequest();
                 assertEquals("hello", hello.path("method").asText());
-                assertEquals(MinecraftRemote.PROTOCOL, hello.path("params").path("protocol").asText());
+                // The fixture includes unknown events from a newer compatible minor.
+                assertEquals("24.0.0", hello.path("params").path("protocol").asText());
                 connection.result(hello, Map.of(
-                        "protocol", fixture.path("protocol").asText(),
+                        "protocol", "24.1.0",
                         "mc_version", "1.21.11",
                         "supported_mc_versions", List.of("1.21.11"),
                         "catalogHash", "sha256:shared-fixture",

@@ -9,6 +9,8 @@ import java.util.Optional;
 /**
  * Server-authoritative identity, compatibility, and build context from {@code hello}.
  * Authentication-related optional values are empty when the server does not advertise them.
+ *
+ * @param server advertised server identity, formatted as "name version" for structured metadata
  */
 public record HelloResult(
         String protocol,

@@ -381,7 +381,7 @@ class ReconnectAndWaitTest {
 
     private static Map<String, Object> helloResult(String server, String session, String catalogHash) {
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("protocol", "23.0.0");
+        result.put("protocol", "24.0.0");
         result.put("mc_version", "1.21.11");
         result.put("supported_mc_versions", List.of("1.21.11"));
         result.put("catalogHash", catalogHash);

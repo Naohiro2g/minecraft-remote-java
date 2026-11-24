@@ -99,14 +99,14 @@ OS adapterはmacOS Keychain、Windows Credential Manager、Linux Secret Service�
 ## 現行プロトコルでの確認
 
 [検証結果](../docs/compatibility_ja.md#2026-10-21のサンプル確認)に、実サーバーで確認できたことと自動テストの範囲を分けて記録しています。
-サンプルの最低protocolは23.0.0、Java公開artifactはまだありません。
+サンプルが要求するprotocolは24.0.0、Java公開artifactはまだありません。
 同期requestで実worldへ操作し、`inspect`と`events`は読み取りだけを行います。
 
 ```bash
 ./gradlew :examples:test
 ```
 
-`ExampleProtocolCompatibilityTest`は、サンプルの本体をloopbackの23.2.1 peerへ接続します。
+`ExampleProtocolCompatibilityTest`は、サンプルの本体をloopbackの24.0.0 peerへ接続します。
 チャットのnull応答、block／sign／particle／eventの形、整地requestの設置数、拒否後も続くメニューを検証します。
 共有fixtureは既存のvendor copyを読み、外部Minecraftサーバーは必要ありません。
 

@@ -5,9 +5,9 @@
 
 ## 互換性の基線
 
-- Clientが要求するprotocol: `23.0.0`
-- 接続判定: serverのmajorが23で、minorが0以上なら受理する。patchは接続判定に使わない
-- 現在の追従対象: 初回stable `2321.0.0`／protocol `23.2.1`（[固定identityと検証](polyglot-e1_ja.md)）
+- Java Clientの版: `2400.0.0`
+- Clientが要求するprotocol: `24.0.0`
+- 接続判定: serverのmajorが24で、minorが0以上なら受理する。patchは接続判定に使わない
 - bootstrap時の比較基線（履歴）: protocol `23.0.0`／artifact `2300.0.0b6`
 - 実serverで確認済み: Minecraft `1.21.11`／Paper `1.21.11-132`
 
@@ -48,8 +48,8 @@ Javaの引数・戻り値の型は[生成APIリファレンス](java-api-referen
 `world.spawnParticle`はprotocol 23のdata不要形と`force`だけを投影します。
 
 b7以降で追加されたdirection／entity lifecycle、b8のsound／typed particle／receiverは、このcheckoutのAPIに含みません。
-Javaはb8／b9 release trainに同期せず、初回stableの公開sourceを固定して既存投影を照合しました。
-追従対象の更新は全capabilityの実装完了を意味しません。要求protocolは実装済み機能に足りる`23.0.0`を維持します。
+初回stableの公開sourceと照合した既存のAPI投影を、protocol `24.0.0`でも使用します。
+helloの`server`が名前と版を持つ場合、`HelloResult.server()`は`McRemote 2400.0.0rc1`のように表示します。
 
 [Java追従計画](post-latest-plan_ja.md)と、[E1のJava対応表・DX評価](polyglot-e1_ja.md)を参照してください。
 

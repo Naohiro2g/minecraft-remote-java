@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-/** Runs the real example bodies over TCP against a deterministic protocol 23.2.1 peer. */
+/** Runs the real example bodies over TCP against a deterministic protocol 24.0.0 peer. */
 @Timeout(60)
 class ExampleProtocolCompatibilityTest {
 
@@ -185,9 +185,9 @@ class ExampleProtocolCompatibilityTest {
         private Object result(String method, JsonNode params) throws Exception {
             return switch (method) {
                 case "hello" -> {
-                    assertEquals("23.0.0", params.path("protocol").asText());
+                    assertEquals("24.0.0", params.path("protocol").asText());
                     if (params.has("auth")) helloTokens.add(params.path("auth").path("token").asText());
-                    yield Map.of("protocol", "23.2.1", "mc_version", "1.21.11",
+                    yield Map.of("protocol", "24.0.0", "mc_version", "1.21.11",
                             "supported_mc_versions", List.of("1.21.11", "26.3"),
                             "world_constants", Map.of("y_sea", 62), "dimension", "minecraft:overworld",
                             "origin", origin, "permissions", Map.of("online", true, "offline", true, "buildRange", 500));
